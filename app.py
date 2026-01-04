@@ -36,7 +36,7 @@ region = st.selectbox("Select Region", REGIONS)
 
 # ------------------------------------------
 # Regional climatological range
-# (winter_max, summer_min)
+# (winter_max, summer_min) [million km²]
 # ------------------------------------------
 REGION_CLIMATOLOGY = {
     "Entire Arctic (Pan-Arctic)": (15.5, 4.0),
@@ -54,7 +54,7 @@ REGION_CLIMATOLOGY = {
 }
 
 # ------------------------------------------
-# Load NSIDC v4 (robust)
+# Load NSIDC v4 Sea Ice Index (ULTRA SAFE)
 # ------------------------------------------
 @st.cache_data(ttl=3600)
 def load_nsidc_v4():
@@ -62,13 +62,59 @@ def load_nsidc_v4():
         "https://noaadata.apps.nsidc.org/NOAA/G02135/"
         "north/daily/data/N_seaice_extent_daily_v4.0.csv"
     )
+
     df = pd.read_csv(url)
     df.columns = [c.strip().lower() for c in df.columns]
 
-    # auto-detect
-    date_col = next(c for c in df.columns if "date" in c)
-    extent_col = next(c for c in df.columns if "extent" in c)
+    # -----------------------------
+    # Date column detection
+    # -----------------------------
+    date_col = None
+    for cand in ["date", "datetime", "time"]:
+        if cand in df.columns:
+            date_col = cand
+            break
 
+    # Fallback: year / month / day
+    if date_col is None:
+        if all(c in df.columns for c in ["year", "month", "day"]):
+            df["date"] = pd.to_datetime(
+                df[["year", "month", "day"]],
+                errors="coerce"
+            )
+            date_col = "date"
+        else:
+            st.error(
+                f"Unable to detect date column. Columns found: {list(df.columns)}"
+            )
+            return None
+
+    # -----------------------------
+    # Extent column detection
+    # -----------------------------
+    extent_col = None
+    for cand in ["extent", "seaice_extent", "total_extent"]:
+        if cand in df.columns:
+            extent_col = cand
+            break
+
+    # Fallback: numeric column with realistic magnitude
+    if extent_col is None:
+        for col in df.columns:
+            numeric = pd.to_numeric(df[col], errors="coerce")
+            if numeric.notna().sum() > len(df) * 0.9 and numeric.max() > 5:
+                extent_col = col
+                break
+
+    if extent_col is None:
+        st.error(
+            f"Unable to detect extent column. Columns found: {list(df.columns)}"
+        )
+        return None
+
+    # -----------------------------
+    # Final clean dataframe
+    # -----------------------------
     df["date"] = pd.to_datetime(df[date_col], errors="coerce")
     df["extent"] = pd.to_numeric(df[extent_col], errors="coerce")
 
@@ -79,9 +125,19 @@ def load_nsidc_v4():
 
 df = load_nsidc_v4()
 
-df_valid = df[df["date"].dt.date <= today]
-latest = df_valid.iloc[-1]
+# ------------------------------------------
+# Fail-safe
+# ------------------------------------------
+if df is None or df.empty:
+    st.stop()
 
+df_valid = df[df["date"].dt.date <= today]
+
+if df_valid.empty:
+    st.error("No valid NSIDC data available up to today.")
+    st.stop()
+
+latest = df_valid.iloc[-1]
 extent_today = float(latest["extent"])
 data_date = latest["date"].date()
 
@@ -96,7 +152,7 @@ st.caption(f"Region: {region}")
 st.markdown("---")
 
 # ------------------------------------------
-# Regional seasonal-normalized risk
+# Seasonal-normalized regional risk
 # ------------------------------------------
 winter_max, summer_min = REGION_CLIMATOLOGY[region]
 
@@ -149,10 +205,12 @@ st.markdown(
 **Interpretation**
 
 This index represents the **relative seasonal ice severity**
-for **{region}**, normalized against its historical winter–summer range.
+for **{region}**, normalized against its historical
+**winter–summer climatological range**.
 
-It explains why some regions (e.g., Sea of Okhotsk) remain **moderate**
-even during full Arctic winter, while core Arctic basins approach **extreme**.
+This explains why peripheral seas (e.g., Sea of Okhotsk,
+Barents Sea) may remain **moderate**, while central Arctic
+basins approach **extreme** during winter.
 """
 )
 
@@ -164,10 +222,12 @@ st.caption(
     """
 **Data Source & Legal Notice**
 
-Sea ice extent data are from **NOAA / NSIDC Sea Ice Index (G02135), Version 4**
-(AMSR2), used under NOAA Open Data policy.
+Sea ice extent data are provided by **NOAA / NSIDC Sea Ice Index
+(G02135), Version 4**, derived from AMSR2 observations and
+distributed under the NOAA Open Data policy.
 
-This tool provides situational awareness only and does not replace
-official ice services or navigational judgment.
+This application provides situational awareness only and does
+not replace official ice services, onboard navigation systems,
+or the judgment of vessel masters.
 """
 )
