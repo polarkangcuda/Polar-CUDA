@@ -3,8 +3,7 @@ import datetime
 import pandas as pd
 
 # =====================================================
-# Polar CUDA – Fleet Operations (SAFE Cloud Version)
-# No matplotlib / no plotly
+# Polar CUDA – Fleet Operations (SAFE + NSIDC v4)
 # =====================================================
 
 st.set_page_config(
@@ -18,7 +17,7 @@ st.set_page_config(
 today = datetime.date.today()
 
 # -----------------------------------------------------
-# Region Selection (운항 관리자용 가중치)
+# Region Selection (운항 관리자 가중치)
 # -----------------------------------------------------
 REGIONS = {
     "Entire Arctic (Pan-Arctic)": 1.00,
@@ -36,24 +35,32 @@ selected_region = st.selectbox(
 region_weight = REGIONS[selected_region]
 
 # -----------------------------------------------------
-# NSIDC v4 Sea Ice Extent (⭐ 실데이터 한 줄 연결 ⭐)
+# NSIDC v4 Sea Ice Extent (안전 연결)
 # -----------------------------------------------------
 NSIDC_URL = (
     "https://noaadata.apps.nsidc.org/NOAA/G02135/"
     "north/daily/data/N_seaice_extent_daily_v4.0.csv"
 )
 
-df = pd.read_csv(NSIDC_URL)   # ← 실데이터 연결 단 한 줄
+df = pd.read_csv(NSIDC_URL)
 
-df.columns = [c.strip() for c in df.columns]
+# 컬럼명 정리 (가장 중요)
+df.columns = [c.strip().lower() for c in df.columns]
+
+# date 컬럼 통일
+df = df.rename(columns={"date": "date", "extent": "extent"})
+
+# 날짜 파싱
 df["date"] = pd.to_datetime(df["date"], errors="coerce")
-df = df[["date", "Extent"]].dropna().sort_values("date")
 
-extent_today = df.iloc[-1]["Extent"]
+# 필수 컬럼만 사용
+df = df[["date", "extent"]].dropna()
+
+# 최신 데이터
+extent_today = df.sort_values("date").iloc[-1]["extent"]
 
 # -----------------------------------------------------
-# Risk Index (설명 가능한 단순식)
-# 낮은 결빙 면적 = 높은 위험
+# Risk Index (설명 가능한 단순 모델)
 # -----------------------------------------------------
 risk_index = round(
     min(max((12 - extent_today) / 12 * 100 * region_weight, 0), 100),
@@ -101,7 +108,6 @@ st.markdown(
 """
 )
 
-# Progress bar (항해 직관용)
 st.progress(int(risk_index))
 
 st.markdown(
@@ -109,7 +115,7 @@ st.markdown(
 **Operational Interpretation**
 
 This indicator provides high-level situational awareness for polar navigation.
-It is intended to support planning and scheduling decisions, not real-time ship handling.
+It supports planning and scheduling decisions and does not replace onboard systems.
 """
 )
 
@@ -125,7 +131,7 @@ Sea ice extent data are sourced from **NOAA/NSIDC Sea Ice Index Version 4 (G0213
 an official **NOAA Open Data** product.
 
 NOAA open data may be freely used, adapted, and redistributed with attribution.
-This dashboard does **not** constitute navigational, legal, or safety guidance.
-Final operational decisions remain the responsibility of vessel operators and masters.
+This dashboard does **not** constitute navigational or safety guidance.
+Final operational decisions remain with vessel operators and masters.
 """
 )
