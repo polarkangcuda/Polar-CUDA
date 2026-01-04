@@ -1,179 +1,156 @@
 import streamlit as st
+import plotly.graph_objects as go
 import datetime
-import numpy as np
-import pandas as pd
 
-# =====================================================
-# Polar CUDA – Fleet Operations Manager Edition (PRO)
-# =====================================================
+# ==============================
+# Polar CUDA – Operations Gauge
+# ==============================
 
 st.set_page_config(
-    page_title="Polar CUDA – Fleet Operations",
-    layout="wide"
+    page_title="Polar CUDA – Operations Monitor",
+    layout="centered"
 )
 
-# -----------------------------------------------------
-# Date & Update Cycle
-# -----------------------------------------------------
+# ------------------------------
+# Header (minimal, professional)
+# ------------------------------
 today = datetime.date.today()
-yesterday = today - datetime.timedelta(days=1)
-
-# -----------------------------------------------------
-# Region Selection
-# -----------------------------------------------------
-REGIONS = {
-    "Entire Arctic (Pan-Arctic)": {"ice": 65, "drift": 12, "wind": 8},
-    "Chukchi Sea": {"ice": 72, "drift": 15, "wind": 9},
-    "East Siberian Sea": {"ice": 78, "drift": 18, "wind": 10},
-    "Beaufort Sea": {"ice": 60, "drift": 11, "wind": 7},
-    "Barents Sea": {"ice": 42, "drift": 6, "wind": 12},
-}
-
-selected_region = st.selectbox(
-    "Select Region",
-    list(REGIONS.keys())
-)
-
-data = REGIONS[selected_region]
-
-# -----------------------------------------------------
-# Normalization Function
-# -----------------------------------------------------
-def normalize(value, min_val, max_val):
-    value = max(min(value, max_val), min_val)
-    return 100 * (value - min_val) / (max_val - min_val)
-
-sic_norm = normalize(data["ice"], 0, 100)
-drift_norm = normalize(data["drift"], 0, 30)
-wind_norm = normalize(data["wind"], 0, 25)
-
-# -----------------------------------------------------
-# Risk Index Calculation
-# -----------------------------------------------------
-risk_index = round(
-    0.45 * sic_norm +
-    0.30 * drift_norm +
-    0.25 * wind_norm,
-    1
-)
-
-# Yesterday (dummy baseline for trend logic)
-yesterday_risk = risk_index - 0.8
-delta = round(risk_index - yesterday_risk, 1)
-
-# -----------------------------------------------------
-# Status Classification
-# -----------------------------------------------------
-if risk_index < 30:
-    status = "LOW"
-    color = "🟢"
-elif risk_index < 50:
-    status = "MODERATE"
-    color = "🟡"
-elif risk_index < 70:
-    status = "HIGH"
-    color = "🟠"
-else:
-    status = "EXTREME"
-    color = "🔴"
-
-trend_arrow = "↑" if delta > 0 else "↓" if delta < 0 else "→"
-
-# -----------------------------------------------------
-# Header
-# -----------------------------------------------------
-st.title("🧊 Polar CUDA – Fleet Operations Monitor")
-st.caption(f"Date: {today} | Update Cycle: Daily")
-
-# -----------------------------------------------------
-# Fleet Risk Overview
-# -----------------------------------------------------
-st.subheader("Fleet Polar Risk Index")
-
-col1, col2, col3 = st.columns([2, 1, 2])
-
-with col1:
-    st.metric(
-        label="Current Fleet Risk",
-        value=f"{risk_index} / 100",
-        delta=f"{trend_arrow} {abs(delta)} (DoD)"
-    )
-
-with col2:
-    st.markdown(f"### Status\n**{color} {status}**")
-
-with col3:
-    st.progress(int(risk_index))
-
-# -----------------------------------------------------
-# Guidance Text (Operations Language)
-# -----------------------------------------------------
 st.markdown(
     f"""
-**Operational Guidance**
-
-Fleet-level risk remains **{status.lower()}** for **{selected_region}**.  
-However, localized escalation trends are observed.  
-**Schedule review may be required within the next 48–72 hours if the trend persists.**
-"""
+    <div style="display:flex; align-items:center; gap:14px;">
+        <span style="font-size:40px;">🧊</span>
+        <div>
+            <div style="font-size:34px; font-weight:700;">Polar CUDA</div>
+            <div style="font-size:14px; color:#AAAAAA;">Date: {today}</div>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
-# -----------------------------------------------------
-# Driver Decomposition
-# -----------------------------------------------------
-st.subheader("Risk Driver Decomposition")
+st.markdown("<br>", unsafe_allow_html=True)
 
-driver_df = pd.DataFrame({
-    "Driver": ["Sea Ice Extent", "Ice Drift", "Wind"],
-    "Contribution (%)": [
-        round(0.45 * sic_norm, 1),
-        round(0.30 * drift_norm, 1),
-        round(0.25 * wind_norm, 1)
+# ------------------------------
+# Region selector (fleet-ready)
+# ------------------------------
+region = st.selectbox(
+    "Select Region",
+    [
+        "Entire Arctic (Pan-Arctic)",
+        "Beaufort Sea",
+        "Chukchi Sea",
+        "East Siberian Sea",
+        "Laptev Sea",
+        "Kara Sea"
     ]
-})
+)
 
-st.bar_chart(driver_df.set_index("Driver"))
+# ------------------------------
+# Example risk values
+# (→ later replaced by NSIDC v4)
+# ------------------------------
+region_risk = {
+    "Entire Arctic (Pan-Arctic)": 47.6,
+    "Beaufort Sea": 52.3,
+    "Chukchi Sea": 44.1,
+    "East Siberian Sea": 58.7,
+    "Laptev Sea": 61.9,
+    "Kara Sea": 39.8
+}
 
-# -----------------------------------------------------
-# 7-Day Risk Trend (Moving Average)
-# -----------------------------------------------------
-st.subheader("7-Day Fleet Risk Trend")
+risk_index = region_risk[region]
 
-trend_values = np.linspace(risk_index - 5, risk_index, 7)
-trend_df = pd.DataFrame({
-    "Date": pd.date_range(end=today, periods=7),
-    "Risk Index": trend_values
-})
+# ------------------------------
+# Status label
+# ------------------------------
+if risk_index < 30:
+    status_label = "LOW"
+elif risk_index < 50:
+    status_label = "MODERATE"
+elif risk_index < 70:
+    status_label = "HIGH"
+else:
+    status_label = "EXTREME"
 
-st.line_chart(trend_df.set_index("Date"))
+# ------------------------------
+# Plotly Gauge (Fear & Greed style)
+# ------------------------------
+fig = go.Figure(go.Indicator(
+    mode="gauge+number",
+    value=risk_index,
+    number={
+        "font": {"size": 64},
+        "suffix": ""
+    },
+    title={
+        "text": f"<b>{status_label}</b>",
+        "font": {"size": 20}
+    },
+    gauge={
+        "axis": {
+            "range": [0, 100],
+            "tickwidth": 1,
+            "tickcolor": "white"
+        },
+        "bar": {
+            "color": "#3498DB",
+            "thickness": 0.25
+        },
+        "steps": [
+            {"range": [0, 30], "color": "#1ABC9C"},    # SAFE
+            {"range": [30, 50], "color": "#F1C40F"},  # MODERATE
+            {"range": [50, 70], "color": "#E67E22"},  # HIGH
+            {"range": [70, 100], "color": "#E74C3C"}  # EXTREME
+        ],
+        "threshold": {
+            "line": {"color": "black", "width": 4},
+            "thickness": 0.8,
+            "value": risk_index
+        }
+    }
+))
 
-# -----------------------------------------------------
-# Fleet Impact Matrix (Example)
-# -----------------------------------------------------
-st.subheader("Fleet Impact Matrix")
+fig.update_layout(
+    height=450,
+    margin=dict(l=20, r=20, t=40, b=20),
+    paper_bgcolor="rgba(0,0,0,0)",
+    font=dict(color="white")
+)
 
-fleet_df = pd.DataFrame([
-    ["ARAON", "Chukchi Sea", 52, "↑", "⚠ Monitor"],
-    ["Cargo-01", "Beaufort Sea", 61, "↑↑", "❗ Review"],
-    ["Tanker-02", "Barents Sea", 34, "↓", "✅ Normal"],
-], columns=[
-    "Vessel", "Region", "Risk Index", "Trend", "Action Flag"
-])
+# ------------------------------
+# Display (visual-first)
+# ------------------------------
+st.plotly_chart(fig, use_container_width=True)
 
-st.dataframe(fleet_df, use_container_width=True)
+# ------------------------------
+# Minimal guidance bar
+# ------------------------------
+st.markdown(
+    f"""
+    <div style="
+        margin-top:10px;
+        padding:14px;
+        border-radius:8px;
+        background-color:rgba(46, 204, 113, 0.15);
+        font-size:15px;
+    ">
+        <b>Operational Guidance:</b>
+        Conditions are generally manageable, but localized or short-term risks may be present.
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
-# -----------------------------------------------------
-# Disclaimer (Policy / Legal Grade)
-# -----------------------------------------------------
-st.markdown("---")
-st.caption(
+# ------------------------------
+# Footer (policy-safe)
+# ------------------------------
+st.markdown("<br>", unsafe_allow_html=True)
+st.markdown(
     """
-**Operational Disclaimer**
-
-This dashboard provides fleet-level situational risk awareness derived from publicly available
-cryospheric and atmospheric datasets (NOAA/NSIDC Sea Ice Index v4, reanalysis wind fields, and ice drift products).
-
-It does not replace onboard navigation systems, ice services, or the judgment of vessel masters.
-Final operational decisions remain the responsibility of the operating company and ship masters.
-"""
+    <div style="font-size:12px; color:#888888;">
+    Data sources (planned): NOAA/NSIDC Sea Ice Index v4 (AMSR2), wind reanalysis, ice drift products.<br>
+    This display is for situational awareness only and does not constitute operational or navigational guidance.
+    </div>
+    """,
+    unsafe_allow_html=True
 )
