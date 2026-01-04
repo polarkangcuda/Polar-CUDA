@@ -1,8 +1,11 @@
 import streamlit as st
 import datetime
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
 
 # =====================================================
-# Polar CUDA – Fleet Operations Manager (Status Only)
+# Polar CUDA – Fleet Operations (NSIDC v4 + Gauge)
 # =====================================================
 
 st.set_page_config(
@@ -11,20 +14,19 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------
-# Date & Update Cycle
+# Date
 # -----------------------------------------------------
 today = datetime.date.today()
-yesterday = today - datetime.timedelta(days=1)
 
 # -----------------------------------------------------
-# Region Selection
+# Region Selection (운영용 단순 가중치)
 # -----------------------------------------------------
 REGIONS = {
-    "Entire Arctic (Pan-Arctic)": {"ice": 65, "drift": 12, "wind": 8},
-    "Chukchi Sea": {"ice": 72, "drift": 15, "wind": 9},
-    "East Siberian Sea": {"ice": 78, "drift": 18, "wind": 10},
-    "Beaufort Sea": {"ice": 60, "drift": 11, "wind": 7},
-    "Barents Sea": {"ice": 42, "drift": 6, "wind": 12},
+    "Entire Arctic (Pan-Arctic)": 1.00,
+    "Chukchi Sea": 1.10,
+    "East Siberian Sea": 1.15,
+    "Beaufort Sea": 1.05,
+    "Barents Sea": 0.90,
 }
 
 selected_region = st.selectbox(
@@ -32,104 +34,138 @@ selected_region = st.selectbox(
     list(REGIONS.keys())
 )
 
-data = REGIONS[selected_region]
+region_weight = REGIONS[selected_region]
 
 # -----------------------------------------------------
-# Normalization Function
+# NSIDC v4 Sea Ice Extent (⭐ 단 한 줄 연결 ⭐)
 # -----------------------------------------------------
-def normalize(value, min_val, max_val):
-    value = max(min(value, max_val), min_val)
-    return 100 * (value - min_val) / (max_val - min_val)
+NSIDC_URL = (
+    "https://noaadata.apps.nsidc.org/NOAA/G02135/"
+    "north/daily/data/N_seaice_extent_daily_v4.0.csv"
+)
 
-sic_norm = normalize(data["ice"], 0, 100)
-drift_norm = normalize(data["drift"], 0, 30)
-wind_norm = normalize(data["wind"], 0, 25)
+df = pd.read_csv(NSIDC_URL)  # ← 이것이 실데이터 연결 "한 줄"
+
+# v4 구조 대응
+df.columns = [c.strip() for c in df.columns]
+df["date"] = pd.to_datetime(df["date"], errors="coerce")
+df = df[["date", "Extent"]].dropna().sort_values("date")
+
+latest = df.iloc[-1]
+extent_today = latest["Extent"]
 
 # -----------------------------------------------------
-# Risk Index Calculation
+# Risk Index (단순·설명 가능)
+# 낮은 얼음 면적 = 높은 위험
 # -----------------------------------------------------
 risk_index = round(
-    0.45 * sic_norm +
-    0.30 * drift_norm +
-    0.25 * wind_norm,
+    min(max((12 - extent_today) / 12 * 100 * region_weight, 0), 100),
     1
 )
 
-# Yesterday (baseline for day-over-day logic)
-yesterday_risk = risk_index - 0.8
-delta = round(risk_index - yesterday_risk, 1)
-
 # -----------------------------------------------------
-# Status Classification (CORE LOGIC)
+# Status Classification
 # -----------------------------------------------------
 if risk_index < 30:
     status = "LOW"
-    color = "🟢"
+    color = "#2ecc71"
 elif risk_index < 50:
     status = "MODERATE"
-    color = "🟡"
+    color = "#f1c40f"
 elif risk_index < 70:
     status = "HIGH"
-    color = "🟠"
+    color = "#e67e22"
 else:
     status = "EXTREME"
-    color = "🔴"
-
-trend_arrow = "↑" if delta > 0 else "↓" if delta < 0 else "→"
+    color = "#e74c3c"
 
 # -----------------------------------------------------
-# Header
+# 반원형 게이지 (Matplotlib)
+# -----------------------------------------------------
+def draw_gauge(value, status_label, color):
+    fig, ax = plt.subplots(figsize=(7, 3.5))
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    # 구간
+    zones = [
+        (0, 30, "#2ecc71"),
+        (30, 50, "#f1c40f"),
+        (50, 70, "#e67e22"),
+        (70, 100, "#e74c3c"),
+    ]
+
+    # 반원
+    for start, end, c in zones:
+        theta = np.linspace(
+            np.pi * (1 - start / 100),
+            np.pi * (1 - end / 100),
+            100
+        )
+        ax.plot(np.cos(theta), np.sin(theta), linewidth=30, color=c)
+
+    # 바늘
+    angle = np.pi * (1 - value / 100)
+    ax.plot([0, 0.75 * np.cos(angle)],
+            [0, 0.75 * np.sin(angle)],
+            linewidth=4, color="black")
+    ax.scatter(0, 0, s=80, color="black")
+
+    # 숫자
+    ax.text(0, -0.15, f"{value:.1f}",
+            ha="center", va="center",
+            fontsize=28, fontweight="bold")
+
+    ax.text(0, 1.1, status_label,
+            ha="center", va="center",
+            fontsize=16, color=color, fontweight="bold")
+
+    return fig
+
+# -----------------------------------------------------
+# UI
 # -----------------------------------------------------
 st.title("🧊 Polar CUDA – Fleet Operations Monitor")
-st.caption(f"Date: {today} | Update Cycle: Daily")
+st.caption(f"Date: {today}")
+st.caption(f"Region: {selected_region}")
+st.caption(f"NSIDC Sea Ice Extent (latest): {extent_today:.2f} million km²")
 
-# -----------------------------------------------------
-# Fleet Risk Overview (No Graphs / No Tables)
-# -----------------------------------------------------
-st.subheader("Fleet Polar Risk Index")
-
-col1, col2, col3 = st.columns([2, 1, 2])
+col1, col2 = st.columns([2, 1])
 
 with col1:
-    st.metric(
-        label="Current Fleet Risk",
-        value=f"{risk_index} / 100",
-        delta=f"{trend_arrow} {abs(delta)} (DoD)"
-    )
+    fig = draw_gauge(risk_index, status, color)
+    st.pyplot(fig)
 
 with col2:
-    st.markdown(f"### Status\n**{color} {status}**")
+    st.subheader("Operational Status")
+    st.markdown(f"### **{status}**")
+    st.markdown(f"Risk Index: **{risk_index} / 100**")
 
-with col3:
-    st.progress(int(risk_index))
-
-# -----------------------------------------------------
-# Operational Guidance
-# -----------------------------------------------------
-st.markdown(
-    f"""
+    st.markdown(
+        """
 **Operational Guidance**
 
-Fleet-level risk remains **{status.lower()}** for **{selected_region}**.  
-Localized escalation trends may occur depending on synoptic conditions.
-
-**Operational review is recommended within 48–72 hours if the trend persists.**
+This indicator provides fleet-level situational awareness.
+Operational review is recommended if conditions trend upward.
 """
-)
+    )
 
 # -----------------------------------------------------
-# Disclaimer (Policy / Legal Grade)
+# Legal / Data Attribution (중요)
 # -----------------------------------------------------
 st.markdown("---")
 st.caption(
     """
-**Operational Disclaimer**
+**Data Attribution & Legal Notice**
 
-This dashboard provides fleet-level situational awareness derived from
-aggregated cryospheric and atmospheric indicators.
+Sea ice extent data are sourced from **NOAA/NSIDC Sea Ice Index Version 4**
+(G02135, AMSR2), an official **NOAA Open Data** product.
 
-It does not replace onboard navigation systems, ice services, or the
-professional judgment of vessel masters. Final operational decisions
-remain the responsibility of the operating company and ship masters.
+These data are publicly available and may be used, redistributed,
+and adapted in accordance with NOAA open data policies.
+
+This dashboard is provided for situational awareness only and does not
+constitute navigational or legal guidance. Final operational decisions
+remain the responsibility of vessel operators and masters.
 """
 )
