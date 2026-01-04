@@ -3,7 +3,7 @@ import datetime
 import pandas as pd
 
 # =====================================================
-# Polar CUDA – Status Gauge (NSIDC v4 BULLETPROOF)
+# Polar CUDA – Status Gauge (NSIDC v4 FINAL SAFE)
 # =====================================================
 
 st.set_page_config(
@@ -17,7 +17,7 @@ st.set_page_config(
 today = datetime.date.today()
 
 # -----------------------------------------------------
-# Region Weights
+# Region Weights (Operations Logic)
 # -----------------------------------------------------
 REGIONS = {
     "Entire Arctic (Pan-Arctic)": 1.00,
@@ -35,7 +35,7 @@ selected_region = st.selectbox(
 region_weight = REGIONS[selected_region]
 
 # -----------------------------------------------------
-# Load NSIDC v4 Data (FINAL SAFE VERSION)
+# Load NSIDC v4 Data (BULLETPROOF)
 # -----------------------------------------------------
 NSIDC_URL = (
     "https://noaadata.apps.nsidc.org/NOAA/G02135/"
@@ -44,10 +44,10 @@ NSIDC_URL = (
 
 df = pd.read_csv(NSIDC_URL)
 
-# 1️⃣ 컬럼명 정규화
+# 1️⃣ 컬럼명 정규화 (공백 제거 + 소문자)
 df.columns = [c.strip().lower() for c in df.columns]
 
-# 2️⃣ 날짜 처리 (두 가지 경우 모두 대응)
+# 2️⃣ 날짜 컬럼 처리 (date or year/month/day)
 if "date" in df.columns:
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
@@ -61,24 +61,35 @@ else:
     st.error("NSIDC dataset date format not recognized.")
     st.stop()
 
-# 3️⃣ Extent 확인
+# 3️⃣ extent 컬럼 확인
 if "extent" not in df.columns:
     st.error("Extent column not found in NSIDC dataset.")
     st.stop()
 
+# 4️⃣ 숫자 강제 변환 (⭐ TypeError 방지 핵심 ⭐)
+df["extent"] = pd.to_numeric(df["extent"], errors="coerce")
+
+# 5️⃣ 필수 데이터만 남기기
 df = df[["date", "extent"]].dropna()
 df = df.sort_values("date")
+
+if df.empty:
+    st.error("No valid NSIDC data available.")
+    st.stop()
 
 # -----------------------------------------------------
 # Latest Sea Ice Extent
 # -----------------------------------------------------
-extent_today = df.iloc[-1]["extent"]
+extent_today = float(df.iloc[-1]["extent"])
 
 # -----------------------------------------------------
-# Risk Index (Conservative Navigation Logic)
+# Risk Index (Explainable & Conservative)
 # -----------------------------------------------------
 risk_index = round(
-    min(max((12 - extent_today) / 12 * 100 * region_weight, 0), 100),
+    min(
+        max((12.0 - extent_today) / 12.0 * 100.0 * region_weight, 0.0),
+        100.0
+    ),
     1
 )
 
@@ -125,8 +136,18 @@ st.markdown(
 
 st.progress(int(risk_index))
 
+st.markdown(
+    """
+**Operational Interpretation**
+
+This indicator provides high-level situational awareness for polar navigation.
+It supports planning and scheduling decisions and does not replace onboard
+navigation systems or the judgment of vessel masters.
+"""
+)
+
 # -----------------------------------------------------
-# Legal / Attribution
+# Legal / Data Attribution
 # -----------------------------------------------------
 st.markdown("---")
 st.caption(
@@ -137,7 +158,7 @@ Sea ice extent data are provided by **NOAA/NSIDC Sea Ice Index Version 4 (G02135
 an official **NOAA Open Data** product.
 
 NOAA open data may be freely used, adapted, and redistributed with attribution.
-This dashboard provides situational awareness only and does not constitute
-navigational or safety guidance.
+This dashboard provides situational awareness only and does **not** constitute
+navigational, safety, or legal guidance.
 """
 )
