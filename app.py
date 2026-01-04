@@ -1,139 +1,137 @@
 # =========================================================
-# Polar CUDA – Operational Risk Dashboard (Stable Edition)
-# No external visualization libraries (Plotly-free)
+# Polar CUDA – Semi-Circular Gauge (Matplotlib only)
 # =========================================================
 
 import streamlit as st
-import datetime
-import pandas as pd
+import matplotlib.pyplot as plt
 import numpy as np
+import datetime
 
 # -----------------------------
 # Page config
 # -----------------------------
 st.set_page_config(
-    page_title="Polar CUDA – Fleet Risk Monitor",
+    page_title="Polar CUDA – Risk Gauge",
     layout="wide"
 )
 
 # -----------------------------
-# Sidebar: Region selection
-# -----------------------------
-REGIONS = {
-    "Entire Arctic (Pan-Arctic)": 47.6,
-    "Beaufort Sea": 52.1,
-    "Chukchi Sea": 49.3,
-    "East Siberian Sea": 55.4,
-    "Laptev Sea": 58.2,
-    "Kara Sea": 50.7
-}
-
-selected_region = st.selectbox(
-    "Select Region",
-    list(REGIONS.keys())
-)
-
-# -----------------------------
-# Date
+# Inputs (placeholder → real data later)
 # -----------------------------
 today = datetime.date.today()
-st.caption(f"Date: {today}")
+risk_value = 47.6  # 0–100
 
 # -----------------------------
-# Risk values (placeholder → real data replaceable)
+# Gauge definition
 # -----------------------------
-current_risk = REGIONS[selected_region]
-yesterday_risk = current_risk - np.random.uniform(-1.5, 1.5)
-delta = round(current_risk - yesterday_risk, 1)
+zones = [
+    (0, 25, "Extreme", "#c0392b"),
+    (25, 45, "Fear", "#e67e22"),
+    (45, 55, "Neutral", "#bdc3c7"),
+    (55, 75, "Greed", "#7fb3d5"),
+    (75, 100, "Extreme", "#2e86c1"),
+]
 
 # -----------------------------
-# Status classification
+# Create gauge figure
 # -----------------------------
-def risk_status(value):
-    if value < 30:
-        return "Low", "🟢"
-    elif value < 50:
-        return "Moderate", "🟢"
-    elif value < 70:
-        return "High", "🟠"
-    else:
-        return "Extreme", "🔴"
+fig, ax = plt.subplots(figsize=(8, 4))
+ax.set_aspect("equal")
+ax.axis("off")
 
-status_text, status_icon = risk_status(current_risk)
+theta = np.linspace(np.pi, 0, 500)
 
-# -----------------------------
-# Header
-# -----------------------------
-st.title("🧊 Polar CUDA")
-st.subheader("Polar Risk Index – Operational View")
+# Draw background arc
+ax.plot(np.cos(theta), np.sin(theta), color="#eeeeee", linewidth=30)
 
-# -----------------------------
-# Main KPI
-# -----------------------------
-col1, col2 = st.columns([1, 3])
-
-with col1:
-    st.metric(
-        label="Current Risk Index",
-        value=f"{current_risk:.1f} / 100",
-        delta=f"{delta:+.1f}"
+# Draw colored zones
+for start, end, label, color in zones:
+    theta_zone = np.linspace(
+        np.pi * (1 - start / 100),
+        np.pi * (1 - end / 100),
+        100
     )
-    st.markdown(f"**Status:** {status_icon} {status_text}")
+    ax.plot(
+        np.cos(theta_zone),
+        np.sin(theta_zone),
+        linewidth=30,
+        color=color,
+        solid_capstyle="butt"
+    )
 
-with col2:
-    st.progress(int(current_risk))
+# Draw ticks
+for v in [0, 25, 50, 75, 100]:
+    angle = np.pi * (1 - v / 100)
+    ax.text(
+        0.85 * np.cos(angle),
+        0.85 * np.sin(angle),
+        f"{v}",
+        ha="center",
+        va="center",
+        fontsize=10,
+        color="#555"
+    )
 
-# -----------------------------
-# Guidance
-# -----------------------------
-GUIDANCE = {
-    "Low": "Conditions are generally favorable for operations.",
-    "Moderate": "Conditions are manageable, but localized or short-term risks may be present.",
-    "High": "Operational caution advised. Ice, wind, or drift may restrict maneuverability.",
-    "Extreme": "Operations not recommended without icebreaker escort and contingency planning."
-}
+# Draw needle
+needle_angle = np.pi * (1 - risk_value / 100)
+ax.plot(
+    [0, 0.75 * np.cos(needle_angle)],
+    [0, 0.75 * np.sin(needle_angle)],
+    color="black",
+    linewidth=4
+)
 
-st.info(f"**Guidance:** {GUIDANCE[status_text]}")
+# Needle center
+ax.scatter(0, 0, s=100, color="black")
 
-# -----------------------------
-# 7-day trend (synthetic but structured)
-# -----------------------------
-dates = pd.date_range(end=today, periods=7)
-trend = np.linspace(current_risk - 3, current_risk, 7) + np.random.normal(0, 0.4, 7)
+# Value text
+ax.text(
+    0, -0.15,
+    f"{risk_value:.0f}",
+    ha="center",
+    va="center",
+    fontsize=28,
+    fontweight="bold"
+)
 
-trend_df = pd.DataFrame({
-    "Date": dates,
-    "Risk Index": trend
-})
-
-st.markdown("### 7-day Risk Trend")
-st.line_chart(trend_df.set_index("Date"))
-
-# -----------------------------
-# Operational interpretation (manager-focused)
-# -----------------------------
-st.markdown("### Operational Interpretation")
-st.write(
-    """
-- **Trend direction** supports short-term planning decisions (next 3–7 days).
-- **Region-specific view** enables fleet-level risk differentiation.
-- **Daily delta** highlights rapidly deteriorating or improving conditions.
-- Intended for **situational awareness**, not autonomous navigation.
-"""
+# Label
+ax.text(
+    0, 1.05,
+    "Polar Risk Index",
+    ha="center",
+    va="center",
+    fontsize=16,
+    fontweight="bold"
 )
 
 # -----------------------------
-# Footer: Data policy & disclaimer
+# Streamlit layout
+# -----------------------------
+st.title("🧊 Polar CUDA")
+st.caption(f"Date: {today}")
+
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.pyplot(fig)
+
+with col2:
+    st.markdown("### Historical Context")
+    st.markdown("**Previous close:** Fear (44)")
+    st.markdown("**1 week ago:** Neutral (52)")
+    st.markdown("**1 month ago:** Extreme (23)")
+    st.markdown("**1 year ago:** Extreme (24)")
+
+# -----------------------------
+# Footer
 # -----------------------------
 st.markdown("---")
 st.caption(
     """
-**Data sources (planned integration):**  
-NOAA/NSIDC Sea Ice Index Version 4 (AMSR2), wind reanalysis products, ice drift datasets.
+Data sources (planned): NOAA/NSIDC Sea Ice Index v4 (AMSR2),
+wind reanalysis, ice drift products.
 
-**Disclaimer:**  
-This index is provided for situational awareness and planning support only.  
-It does not constitute operational, navigational, or legal guidance.  
-Final decisions remain the responsibility of vessel masters and operators.
+This index is provided for situational awareness only.
+It does not constitute operational or navigational guidance.
 """
 )
