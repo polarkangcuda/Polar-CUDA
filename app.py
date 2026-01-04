@@ -1,197 +1,166 @@
-# =========================================================
-# Polar CUDA – Operational Risk Dashboard (Fleet Manager)
-# NSIDC Sea Ice Index v4 (Read-only, public data)
-# =========================================================
-
 import streamlit as st
 import pandas as pd
 import numpy as np
-import requests
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-# ---------------------------------------------------------
+# =========================================================
 # Page config
-# ---------------------------------------------------------
+# =========================================================
 st.set_page_config(
-    page_title="Polar CUDA – Fleet Operations",
+    page_title="Polar CUDA – Operational Risk Monitor",
     layout="wide"
 )
 
-# ---------------------------------------------------------
-# Sidebar – Region Selector
-# ---------------------------------------------------------
-REGIONS = {
-    "Entire Arctic (Pan-Arctic)": "pan_arctic",
-    "Beaufort Sea": "beaufort",
-    "Chukchi Sea": "chukchi",
-    "East Siberian Sea": "east_siberian"
-}
+# =========================================================
+# Title
+# =========================================================
+st.title("🧊 Polar CUDA")
+st.caption("Operational Risk Monitor for Arctic Navigation")
 
-st.sidebar.title("🧭 Operational Controls")
-region_label = st.sidebar.selectbox("Select Region", list(REGIONS.keys()))
-region_key = REGIONS[region_label]
+# =========================================================
+# Sidebar – Operational controls
+# =========================================================
+st.sidebar.header("⚙️ Operational Controls")
 
-# ---------------------------------------------------------
-# Data source (NSIDC v4 – simplified operational proxy)
-# NOTE:
-# NSIDC v4 region-specific daily CSV is not always uniform.
-# For MVP safety, we:
-# 1) pull Pan-Arctic daily extent (official)
-# 2) apply region scaling factors (documented proxy)
-# ---------------------------------------------------------
-NSIDC_URL = (
-    "https://noaadata.apps.nsidc.org/NOAA/G02135/"
-    "north/daily/data/N_seaice_extent_daily_v4.0.csv"
+region = st.sidebar.selectbox(
+    "Select Region",
+    [
+        "Entire Arctic (Pan-Arctic)",
+        "Beaufort Sea",
+        "Chukchi Sea",
+        "East Siberian Sea"
+    ]
 )
 
-REGION_SCALE = {
-    "pan_arctic": 1.00,
-    "beaufort": 0.18,
-    "chukchi": 0.14,
-    "east_siberian": 0.16
-}
-
+# =========================================================
+# Load NSIDC v4 data (SAFE)
+# =========================================================
 @st.cache_data(ttl=3600)
 def load_nsidc_data():
-    r = requests.get(NSIDC_URL, timeout=20)
-    r.raise_for_status()
-    df = pd.read_csv(NSIDC_URL, skiprows=1)
-    df["date"] = pd.to_datetime(
-        dict(year=df.Year, month=df.Month, day=df.Day)
+    url = (
+        "https://noaadata.apps.nsidc.org/NOAA/G02135/"
+        "north/daily/data/N_seaice_extent_daily_v4.0.csv"
     )
-    return df[["date", "Extent"]]
+
+    df = pd.read_csv(url)
+    df.columns = [c.strip() for c in df.columns]
+
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"])
+    else:
+        df["date"] = pd.to_datetime(df[["Year", "Month", "Day"]])
+
+    df = df[["date", "Extent"]].dropna()
+    return df
+
 
 df = load_nsidc_data()
 
-# ---------------------------------------------------------
-# Region-adjusted ice extent (operational proxy)
-# ---------------------------------------------------------
-df["region_extent"] = df["Extent"] * REGION_SCALE[region_key]
-
-latest = df.iloc[-1]
-yesterday = df.iloc[-2]
-
-extent_today = latest["region_extent"]
-extent_yesterday = yesterday["region_extent"]
-
-delta_extent = extent_today - extent_yesterday
-
-# ---------------------------------------------------------
-# Risk Index (operational, explainable)
-# ---------------------------------------------------------
-def normalize(value, vmin, vmax):
-    value = max(min(value, vmax), vmin)
-    return 100 * (value - vmin) / (vmax - vmin)
-
-ice_risk = normalize(15 - extent_today, 0, 15)
-
-# Placeholder environmental components (safe MVP)
-wind_risk = 45
-drift_risk = 40
-
-risk_index = round(
-    0.5 * ice_risk + 0.3 * wind_risk + 0.2 * drift_risk, 1
-)
-
-# ---------------------------------------------------------
-# Status logic
-# ---------------------------------------------------------
-if risk_index < 30:
-    status = "Low"
-elif risk_index < 50:
-    status = "Moderate"
-elif risk_index < 70:
-    status = "High"
-else:
-    status = "Extreme"
-
-arrow = "⬆️" if delta_extent < 0 else "⬇️"
-
-# ---------------------------------------------------------
-# Header
-# ---------------------------------------------------------
-st.title("🧊 Polar CUDA")
-st.caption(f"Region: **{region_label}**")
-st.caption(f"Data date: {latest['date'].date()}")
-
-# ---------------------------------------------------------
-# KPI Row
-# ---------------------------------------------------------
-c1, c2, c3, c4 = st.columns(4)
-
-c1.metric(
-    "Polar Risk Index",
-    f"{risk_index} / 100",
-    status
-)
-
-c2.metric(
-    "Sea Ice Extent (proxy, M km²)",
-    f"{extent_today:.2f}",
-    f"{arrow} {abs(delta_extent):.2f}"
-)
-
-c3.metric("Wind Risk", wind_risk)
-c4.metric("Ice Drift Risk", drift_risk)
-
-st.progress(int(risk_index))
-
-# ---------------------------------------------------------
-# Guidance
-# ---------------------------------------------------------
-st.subheader("Operational Guidance")
-
-GUIDANCE = {
-    "Low": "Normal operations possible. Maintain routine monitoring.",
-    "Moderate": "Operations manageable. Enhanced watch recommended.",
-    "High": "Conservative routing advised. Icebreaker support likely.",
-    "Extreme": "Avoid operations. High probability of ice interference."
+# =========================================================
+# Region weighting (operational approximation)
+# =========================================================
+REGION_WEIGHT = {
+    "Entire Arctic (Pan-Arctic)": 1.00,
+    "Beaufort Sea": 1.08,
+    "Chukchi Sea": 1.12,
+    "East Siberian Sea": 1.15
 }
 
-st.info(GUIDANCE[status])
+weight = REGION_WEIGHT[region]
 
-# ---------------------------------------------------------
-# 7-day Trend
-# ---------------------------------------------------------
-st.subheader("7-Day Risk Trend")
+# =========================================================
+# Risk index calculation
+# =========================================================
+def calculate_risk(extent):
+    # Normalization (lower ice = higher risk)
+    norm = np.clip((12 - extent) / 12, 0, 1)
+    return round(norm * 100 * weight, 1)
 
-df_recent = df.tail(7).copy()
-df_recent["risk"] = (
-    0.5 * normalize(15 - df_recent["region_extent"], 0, 15)
-    + 0.3 * wind_risk
-    + 0.2 * drift_risk
-)
 
-st.line_chart(
-    df_recent.set_index("date")["risk"]
-)
+df["risk"] = df["Extent"].apply(calculate_risk)
 
-# ---------------------------------------------------------
-# Fleet Operations Panel
-# ---------------------------------------------------------
-st.subheader("Fleet & Schedule Monitoring")
+latest = df.iloc[-1]
+previous = df.iloc[-2]
 
-fleet_df = pd.DataFrame({
-    "Vessel": ["ARAON-1", "Polar Trader-7", "Arctic Supply-3"],
-    "Status": ["En-route", "Standby", "Ice Escort"],
-    "Region": [region_label, "Beaufort Sea", "Chukchi Sea"],
-    "Risk Exposure": ["Moderate", "Low", "High"]
-})
+risk_today = latest["risk"]
+risk_yesterday = previous["risk"]
+delta = round(risk_today - risk_yesterday, 1)
 
-st.dataframe(fleet_df, use_container_width=True)
+# =========================================================
+# Status classification
+# =========================================================
+if risk_today < 30:
+    status = "Low"
+    color = "🟢"
+elif risk_today < 55:
+    status = "Moderate"
+    color = "🟡"
+elif risk_today < 75:
+    status = "High"
+    color = "🟠"
+else:
+    status = "Extreme"
+    color = "🔴"
 
-# ---------------------------------------------------------
-# Footer – Policy wording
-# ---------------------------------------------------------
+# =========================================================
+# Main display
+# =========================================================
+st.subheader("📍 Region")
+st.markdown(f"**{region}**")
+
+st.subheader("📊 Polar Risk Index")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric(
+        label="Current Risk",
+        value=f"{risk_today} / 100",
+        delta=f"{delta:+}"
+    )
+
+with col2:
+    st.markdown("**Status**")
+    st.markdown(f"{color} **{status}**")
+
+with col3:
+    st.markdown("**Data Date**")
+    st.markdown(latest["date"].strftime("%Y-%m-%d"))
+
+st.progress(int(min(risk_today, 100)))
+
+# =========================================================
+# Guidance
+# =========================================================
+st.markdown("### 🧭 Operational Guidance")
+
+if status == "Low":
+    guidance = "Normal operations acceptable."
+elif status == "Moderate":
+    guidance = "Heightened awareness advised. Monitor regional changes."
+elif status == "High":
+    guidance = "Conservative routing and ice support recommended."
+else:
+    guidance = "Avoid operations. Severe ice risk conditions."
+
+st.info(guidance)
+
+# =========================================================
+# 7-day trend
+# =========================================================
+st.markdown("### 📈 7-day Risk Trend")
+
+trend = df.tail(7).copy()
+trend = trend.set_index("date")
+
+st.line_chart(trend["risk"])
+
+# =========================================================
+# Footer – policy safe wording
+# =========================================================
 st.markdown("---")
 st.caption(
-    """
-**Data sources:**  
-NOAA/NSIDC Sea Ice Index Version 4 (AMSR2), public operational release.
-
-**Disclaimer:**  
-This product is provided for situational awareness and planning support only.  
-It does **not** constitute navigational advice, ice routing guidance, or safety certification.  
-Final operational decisions remain the responsibility of vessel masters and operators.
-"""
+    "Data source: NOAA/NSIDC Sea Ice Index v4 (AMSR2). "
+    "This index is provided for situational awareness only. "
+    "It does not constitute navigational, legal, or operational authority."
 )
