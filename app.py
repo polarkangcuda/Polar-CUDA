@@ -3,7 +3,7 @@ import datetime
 import pandas as pd
 
 # =====================================================
-# Polar CUDA – Status Gauge (NSIDC v4 FINAL SAFE)
+# Polar CUDA – Status Gauge (NSIDC v4 FINAL + DATE SAFE)
 # =====================================================
 
 st.set_page_config(
@@ -12,7 +12,7 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------
-# Date
+# Today (local display 기준)
 # -----------------------------------------------------
 today = datetime.date.today()
 
@@ -35,7 +35,7 @@ selected_region = st.selectbox(
 region_weight = REGIONS[selected_region]
 
 # -----------------------------------------------------
-# Load NSIDC v4 Data (BULLETPROOF)
+# Load NSIDC v4 Sea Ice Extent (BULLETPROOF)
 # -----------------------------------------------------
 NSIDC_URL = (
     "https://noaadata.apps.nsidc.org/NOAA/G02135/"
@@ -44,10 +44,10 @@ NSIDC_URL = (
 
 df = pd.read_csv(NSIDC_URL)
 
-# 1️⃣ 컬럼명 정규화 (공백 제거 + 소문자)
+# 1️⃣ 컬럼명 정규화
 df.columns = [c.strip().lower() for c in df.columns]
 
-# 2️⃣ 날짜 컬럼 처리 (date or year/month/day)
+# 2️⃣ 날짜 컬럼 처리 (date OR year/month/day)
 if "date" in df.columns:
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
@@ -56,20 +56,18 @@ elif {"year", "month", "day"}.issubset(df.columns):
         df[["year", "month", "day"]],
         errors="coerce"
     )
-
 else:
     st.error("NSIDC dataset date format not recognized.")
     st.stop()
 
-# 3️⃣ extent 컬럼 확인
+# 3️⃣ extent 컬럼 확인 및 숫자 변환
 if "extent" not in df.columns:
     st.error("Extent column not found in NSIDC dataset.")
     st.stop()
 
-# 4️⃣ 숫자 강제 변환 (⭐ TypeError 방지 핵심 ⭐)
 df["extent"] = pd.to_numeric(df["extent"], errors="coerce")
 
-# 5️⃣ 필수 데이터만 남기기
+# 4️⃣ 필수 데이터 정리
 df = df[["date", "extent"]].dropna()
 df = df.sort_values("date")
 
@@ -78,9 +76,18 @@ if df.empty:
     st.stop()
 
 # -----------------------------------------------------
-# Latest Sea Ice Extent
+# ✅ 오늘 기준 '가장 최신' 관측값 선택 (핵심 수정)
 # -----------------------------------------------------
-extent_today = float(df.iloc[-1]["extent"])
+df_valid = df[df["date"].dt.date <= today]
+
+if df_valid.empty:
+    st.error("No NSIDC data available up to today.")
+    st.stop()
+
+latest_row = df_valid.iloc[-1]
+
+extent_today = float(latest_row["extent"])
+data_date = latest_row["date"].date()
 
 # -----------------------------------------------------
 # Risk Index (Explainable & Conservative)
@@ -117,9 +124,10 @@ else:
 # UI
 # -----------------------------------------------------
 st.title("🧊 Polar CUDA")
-st.caption(f"Date: {today}")
+st.caption(f"Today: {today}")
 st.caption(f"Region: {selected_region}")
-st.caption(f"NSIDC Sea Ice Extent (latest): {extent_today:.2f} million km²")
+st.caption(f"NSIDC Data Date (UTC): {data_date}")
+st.caption(f"Sea Ice Extent: {extent_today:.2f} million km²")
 
 st.markdown("---")
 
@@ -136,13 +144,19 @@ st.markdown(
 
 st.progress(int(risk_index))
 
+# -----------------------------------------------------
+# Interpretation
+# -----------------------------------------------------
 st.markdown(
     """
 **Operational Interpretation**
 
-This indicator provides high-level situational awareness for polar navigation.
-It supports planning and scheduling decisions and does not replace onboard
-navigation systems or the judgment of vessel masters.
+This indicator reflects the most recent available NSIDC sea ice observation
+(as of the data date shown above).  
+NSIDC products are typically updated with a 1–3 day delay (UTC).
+
+This dashboard provides high-level situational awareness only and does not
+replace onboard navigation systems or the judgment of vessel masters.
 """
 )
 
@@ -158,7 +172,7 @@ Sea ice extent data are provided by **NOAA/NSIDC Sea Ice Index Version 4 (G02135
 an official **NOAA Open Data** product.
 
 NOAA open data may be freely used, adapted, and redistributed with attribution.
-This dashboard provides situational awareness only and does **not** constitute
-navigational, safety, or legal guidance.
+This dashboard does **not** constitute navigational, safety, or legal guidance.
+Final operational decisions remain the responsibility of vessel operators and masters.
 """
 )
