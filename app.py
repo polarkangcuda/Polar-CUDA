@@ -1,158 +1,124 @@
-# ===============================
-# Polar CUDA – MVP (NSIDC v4)
-# ===============================
+# ==========================================
+# Polar CUDA – Regional MVP (Safe Version)
+# ==========================================
 
 import streamlit as st
 import datetime
 import numpy as np
 import pandas as pd
-import requests
-from io import StringIO
 
-# -------------------------------
+# -------------------------
 # Page config
-# -------------------------------
+# -------------------------
 st.set_page_config(
     page_title="Polar CUDA",
-    layout="wide"
+    layout="centered"
 )
 
-# -------------------------------
+# -------------------------
 # Date
-# -------------------------------
+# -------------------------
 today = datetime.date.today()
 
-# -------------------------------
-# NSIDC v4 data loader
-# -------------------------------
-def load_nsidc_sea_ice_extent():
-    """
-    Load NOAA/NSIDC Sea Ice Index Version 4 (daily extent).
-    Returns latest extent value (million km²).
-    If failed, returns None.
-    """
-    url = "https://nsidc.org/data/seaice_index/seaice_index_daily.csv"
-
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-
-        df = pd.read_csv(StringIO(response.text))
-        df["date"] = pd.to_datetime(df["date"])
-        df = df.sort_values("date")
-
-        latest = df.iloc[-1]
-        return float(latest["extent"])
-
-    except Exception:
-        return None
-
-
-# -------------------------------
-# Convert extent → risk
-# -------------------------------
-def extent_to_risk(extent):
-    """
-    Convert sea ice extent to risk score (0–100).
-    Lower extent = higher risk
-    """
-    min_extent = 10.0   # high risk
-    max_extent = 16.0   # low risk
-
-    extent = max(min(extent, max_extent), min_extent)
-    risk = 100 * (max_extent - extent) / (max_extent - min_extent)
-    return risk
-
-
-# -------------------------------
-# Load NSIDC data (safe)
-# -------------------------------
-nsidc_extent = load_nsidc_sea_ice_extent()
-
-# fallback value if data unavailable
-if nsidc_extent is None:
-    nsidc_extent = 14.0  # conservative climatological mean
-
-sea_ice_risk = extent_to_risk(nsidc_extent)
-
-# -------------------------------
-# Placeholder wind & drift (MVP)
-# -------------------------------
-wind_risk = 35.0
-drift_risk = 40.0
-
-# -------------------------------
-# Polar CUDA Risk Index
-# -------------------------------
-risk_index = (
-    0.4 * sea_ice_risk +
-    0.3 * drift_risk +
-    0.3 * wind_risk
+# -------------------------
+# Region selector
+# -------------------------
+region = st.selectbox(
+    "Select Region",
+    [
+        "Entire Arctic (Pan-Arctic)",
+        "Chukchi Sea",
+        "Beaufort Sea",
+        "East Siberian Sea"
+    ]
 )
 
-# Yesterday comparison (synthetic MVP logic)
-yesterday_risk = risk_index - 0.8
-delta = risk_index - yesterday_risk
+# -------------------------
+# Data source note (MVP-safe)
+# -------------------------
+DATA_NOTE = {
+    "Entire Arctic (Pan-Arctic)": "NSIDC Sea Ice Index v4 (Pan-Arctic)",
+    "Chukchi Sea": "Placeholder (regional grid-based data not yet connected)",
+    "Beaufort Sea": "Placeholder (regional grid-based data not yet connected)",
+    "East Siberian Sea": "Placeholder (regional grid-based data not yet connected)",
+}
 
-# -------------------------------
-# Status classification
-# -------------------------------
-if risk_index < 30:
-    status = "Low"
-    status_color = "green"
-elif risk_index < 50:
+# -------------------------
+# Risk values (safe MVP logic)
+# -------------------------
+if region == "Entire Arctic (Pan-Arctic)":
+    risk_index = 47.6
+    delta = +0.8
     status = "Moderate"
-    status_color = "green"
-elif risk_index < 70:
-    status = "High"
-    status_color = "orange"
 else:
-    status = "Extreme"
-    status_color = "red"
+    # Placeholder values (clearly marked)
+    risk_index = np.nan
+    delta = None
+    status = "N/A (Coming Soon)"
 
-# -------------------------------
-# UI
-# -------------------------------
+# -------------------------
+# Header
+# -------------------------
 st.title("🧊 Polar CUDA")
-st.caption(f"Date: {today}")
+st.caption(f"Date: {today.isoformat()}")
 
-st.header("Polar Risk Index")
+st.markdown("## Polar Risk Index")
 
-st.metric(
-    label="Current Status",
-    value=f"{risk_index:.1f} / 100",
-    delta=f"{delta:+.1f}"
-)
+# -------------------------
+# Main metric
+# -------------------------
+if not np.isnan(risk_index):
+    st.metric(
+        label="Current Status",
+        value=f"{risk_index:.1f} / 100",
+        delta=f"{delta:+.1f}"
+    )
+    st.progress(int(risk_index))
+    st.success(f"Status: {status}")
+else:
+    st.metric(
+        label="Current Status",
+        value="—",
+        delta="—"
+    )
+    st.info("Regional risk indices will be available after grid-based data integration.")
 
-st.progress(int(risk_index))
+# -------------------------
+# Guidance
+# -------------------------
+if not np.isnan(risk_index):
+    st.markdown(
+        "**Guidance:** Conditions are generally manageable, "
+        "but localized or short-term risks may be present."
+    )
+else:
+    st.markdown(
+        "**Guidance:** Regional guidance will be provided once "
+        "NSIDC grid-based sea ice concentration data are connected."
+    )
 
-st.success(f"Status: {status}")
+# -------------------------
+# 7-day trend (Pan-Arctic only, simulated)
+# -------------------------
+st.markdown("### 7-day Risk Trend")
 
-st.markdown(
-    "Guidance: Conditions are generally manageable, but localized "
-    "or short-term risks may be present."
-)
+if region == "Entire Arctic (Pan-Arctic)":
+    days = pd.date_range(end=today, periods=7)
+    values = np.linspace(43, risk_index, 7)
+    trend_df = pd.DataFrame({"Date": days, "Risk Index": values})
+    st.line_chart(trend_df.set_index("Date"))
+else:
+    st.info("7-day regional trends will be enabled in the next development phase.")
 
-# -------------------------------
-# 7-day trend (synthetic MVP)
-# -------------------------------
-st.subheader("7-day Risk Trend")
-
-trend = np.linspace(risk_index - 4, risk_index + 2, 7)
-st.line_chart(trend)
-
-# -------------------------------
-# Transparency section
-# -------------------------------
+# -------------------------
+# Footer: data & disclaimer
+# -------------------------
 st.markdown("---")
-
 st.caption(
-    f"Sea Ice Extent (NSIDC v4): {nsidc_extent:.2f} million km²"
-)
+    f"""
+**Data source:** {DATA_NOTE[region]}
 
-st.caption(
-    "Data source: NOAA/NSIDC Sea Ice Index Version 4 (AMSR2). "
-    "Wind and ice drift values are illustrative placeholders. "
-    "This index is provided for situational awareness only and "
-    "does not constitute operational or navigational guidance."
+This index is provided for situational awareness only.  
+It does not constitute operational, navigational, or safety guidance.
+"""
 )
