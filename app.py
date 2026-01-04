@@ -17,7 +17,7 @@ st.set_page_config(
 today = datetime.date.today()
 
 # ------------------------------------------
-# Region settings (weight only, 안전)
+# Region settings (weight only)
 # ------------------------------------------
 REGIONS = {
     "Entire Arctic (Pan-Arctic)": 1.00,
@@ -31,7 +31,7 @@ region = st.selectbox("Select Region", list(REGIONS.keys()))
 region_weight = REGIONS[region]
 
 # ------------------------------------------
-# Load NSIDC v4 Sea Ice Index (SAFE)
+# Load NSIDC v4 Sea Ice Index (ROBUST)
 # ------------------------------------------
 @st.cache_data(ttl=3600)
 def load_nsidc_v4():
@@ -41,15 +41,34 @@ def load_nsidc_v4():
     )
 
     df = pd.read_csv(url)
+
+    # 컬럼명 정규화
     df.columns = [c.strip().lower() for c in df.columns]
 
-    # v4: date, extent
-    if "date" not in df.columns or "extent" not in df.columns:
-        raise ValueError("Required columns not found in NSIDC v4 dataset.")
+    # date 컬럼 탐색
+    date_col = None
+    for c in df.columns:
+        if "date" in c:
+            date_col = c
+            break
 
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    # extent 컬럼 탐색
+    extent_col = None
+    for c in df.columns:
+        if "extent" in c:
+            extent_col = c
+            break
+
+    if date_col is None or extent_col is None:
+        raise ValueError(
+            f"NSIDC v4 format changed. Columns found: {list(df.columns)}"
+        )
+
+    df["date"] = pd.to_datetime(df[date_col], errors="coerce")
+    df["extent"] = pd.to_numeric(df[extent_col], errors="coerce")
+
     df = df.dropna(subset=["date", "extent"])
-    df = df.sort_values("date")
+    df = df.sort_values("date").reset_index(drop=True)
 
     return df
 
@@ -63,9 +82,9 @@ extent_today = float(latest["extent"])
 data_date = latest["date"].date()
 
 # ------------------------------------------
-# Navigation Risk Logic (IMPORTANT FIX)
+# Navigation Risk Logic (WINTER-SAFE)
 # ------------------------------------------
-# Winter max reference (NSIDC climatology)
+# Reference maximum winter extent
 MAX_ICE_EXTENT = 14.5  # million km²
 
 risk_index = round(
@@ -77,7 +96,7 @@ risk_index = round(
 )
 
 # ------------------------------------------
-# Status classification (navigation logic)
+# Status classification
 # ------------------------------------------
 if risk_index < 30:
     status = "LOW"
@@ -104,7 +123,7 @@ st.caption(f"Sea Ice Extent: {extent_today:.2f} million km²")
 st.markdown("---")
 
 # ------------------------------------------
-# Navigation Risk Gauge (NO external libs)
+# Navigation Risk Gauge (No external libs)
 # ------------------------------------------
 st.subheader("Polar Navigation Risk Gauge")
 
@@ -115,17 +134,19 @@ st.markdown(
 """
 )
 
-# Simple dial-style indicator (safe)
 segments = int(risk_index // 10)
-dial = "🟢" * min(segments, 3) + "🟡" * max(min(segments - 3, 2), 0) \
-       + "🟠" * max(min(segments - 5, 2), 0) + "🔴" * max(segments - 7, 0)
+dial = (
+    "🟢" * min(segments, 3)
+    + "🟡" * max(min(segments - 3, 2), 0)
+    + "🟠" * max(min(segments - 5, 2), 0)
+    + "🔴" * max(segments - 7, 0)
+)
 
 st.markdown(f"**Risk Dial:** {dial}")
-
 st.progress(int(risk_index))
 
 # ------------------------------------------
-# Operational interpretation
+# Interpretation
 # ------------------------------------------
 st.markdown(
     f"""
@@ -133,9 +154,8 @@ st.markdown(
 
 Current conditions indicate **{status.lower()} navigation risk** for **{region}**.
 
-This assessment is driven primarily by **seasonal ice coverage**.
-Winter conditions with extensive sea ice significantly increase
-ice interaction risk, maneuvering constraints, and operational uncertainty.
+Winter-season sea ice extent is the dominant driver of operational risk,
+affecting route availability, maneuvering margins, and escort requirements.
 """
 )
 
@@ -148,10 +168,9 @@ st.caption(
 **Data Source & Legal Notice**
 
 Sea ice data are sourced from **NOAA/NSIDC Sea Ice Index, Version 4 (G02135)**,
-which is publicly available under NOAA Open Data policy.
+distributed under NOAA Open Data policy.
 
-This application provides **situational awareness only** and does not replace
+This application provides situational awareness only and does not replace
 official ice services, onboard navigation systems, or the judgment of vessel masters.
-Final operational decisions remain the responsibility of operators and ship masters.
 """
 )
