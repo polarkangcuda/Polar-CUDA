@@ -15,11 +15,10 @@ st.set_page_config(
 today = datetime.date.today()
 
 # ------------------------------------------
-# Region list
+# Region list (Sea of Okhotsk EXCLUDED)
 # ------------------------------------------
 REGIONS = [
     "Entire Arctic (Pan-Arctic)",
-    "Sea of Okhotsk",
     "Bering Sea",
     "Chukchi Sea",
     "Beaufort Sea",
@@ -40,7 +39,6 @@ region = st.selectbox("Select Region", REGIONS)
 # ------------------------------------------
 REGION_CLIMATOLOGY = {
     "Entire Arctic (Pan-Arctic)": (15.5, 4.0),
-    "Sea of Okhotsk": (2.0, 0.3),
     "Bering Sea": (1.8, 0.2),
     "Chukchi Sea": (2.8, 0.5),
     "Beaufort Sea": (3.2, 0.8),
@@ -54,7 +52,7 @@ REGION_CLIMATOLOGY = {
 }
 
 # ------------------------------------------
-# Load NSIDC v4 Sea Ice Index (ULTRA SAFE)
+# Load NSIDC v4 Sea Ice Index (SAFE)
 # ------------------------------------------
 @st.cache_data(ttl=3600)
 def load_nsidc_v4():
@@ -66,16 +64,13 @@ def load_nsidc_v4():
     df = pd.read_csv(url)
     df.columns = [c.strip().lower() for c in df.columns]
 
-    # -----------------------------
-    # Date column detection
-    # -----------------------------
+    # ---- Date detection
     date_col = None
-    for cand in ["date", "datetime", "time"]:
-        if cand in df.columns:
-            date_col = cand
+    for c in ["date", "datetime", "time"]:
+        if c in df.columns:
+            date_col = c
             break
 
-    # Fallback: year / month / day
     if date_col is None:
         if all(c in df.columns for c in ["year", "month", "day"]):
             df["date"] = pd.to_datetime(
@@ -84,37 +79,27 @@ def load_nsidc_v4():
             )
             date_col = "date"
         else:
-            st.error(
-                f"Unable to detect date column. Columns found: {list(df.columns)}"
-            )
+            st.error(f"Date column not found. Columns: {list(df.columns)}")
             return None
 
-    # -----------------------------
-    # Extent column detection
-    # -----------------------------
+    # ---- Extent detection
     extent_col = None
-    for cand in ["extent", "seaice_extent", "total_extent"]:
-        if cand in df.columns:
-            extent_col = cand
+    for c in ["extent", "seaice_extent", "total_extent"]:
+        if c in df.columns:
+            extent_col = c
             break
 
-    # Fallback: numeric column with realistic magnitude
     if extent_col is None:
-        for col in df.columns:
-            numeric = pd.to_numeric(df[col], errors="coerce")
-            if numeric.notna().sum() > len(df) * 0.9 and numeric.max() > 5:
-                extent_col = col
+        for c in df.columns:
+            vals = pd.to_numeric(df[c], errors="coerce")
+            if vals.notna().sum() > len(df) * 0.9 and vals.max() > 5:
+                extent_col = c
                 break
 
     if extent_col is None:
-        st.error(
-            f"Unable to detect extent column. Columns found: {list(df.columns)}"
-        )
+        st.error(f"Extent column not found. Columns: {list(df.columns)}")
         return None
 
-    # -----------------------------
-    # Final clean dataframe
-    # -----------------------------
     df["date"] = pd.to_datetime(df[date_col], errors="coerce")
     df["extent"] = pd.to_numeric(df[extent_col], errors="coerce")
 
@@ -125,19 +110,12 @@ def load_nsidc_v4():
 
 df = load_nsidc_v4()
 
-# ------------------------------------------
-# Fail-safe
-# ------------------------------------------
 if df is None or df.empty:
     st.stop()
 
 df_valid = df[df["date"].dt.date <= today]
-
-if df_valid.empty:
-    st.error("No valid NSIDC data available up to today.")
-    st.stop()
-
 latest = df_valid.iloc[-1]
+
 extent_today = float(latest["extent"])
 data_date = latest["date"].date()
 
@@ -204,13 +182,13 @@ st.markdown(
     f"""
 **Interpretation**
 
-This index represents the **relative seasonal ice severity**
-for **{region}**, normalized against its historical
-**winter–summer climatological range**.
+This index reflects **relative seasonal ice severity**
+for **{region}**, normalized using its historical
+winter–summer climatological range.
 
-This explains why peripheral seas (e.g., Sea of Okhotsk,
-Barents Sea) may remain **moderate**, while central Arctic
-basins approach **extreme** during winter.
+Marginal seas with highly variable ice regimes
+(e.g., Sea of Okhotsk) are intentionally excluded
+to avoid misleading extremes.
 """
 )
 
@@ -226,8 +204,7 @@ Sea ice extent data are provided by **NOAA / NSIDC Sea Ice Index
 (G02135), Version 4**, derived from AMSR2 observations and
 distributed under the NOAA Open Data policy.
 
-This application provides situational awareness only and does
-not replace official ice services, onboard navigation systems,
-or the judgment of vessel masters.
+This tool provides situational awareness only and does not replace
+official ice services or navigational judgment.
 """
 )
