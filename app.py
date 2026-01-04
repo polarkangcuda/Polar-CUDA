@@ -1,137 +1,139 @@
+# =========================================================
+# Polar CUDA – Operational Risk Dashboard (Stable Edition)
+# No external visualization libraries (Plotly-free)
+# =========================================================
+
 import streamlit as st
 import datetime
-import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
+import numpy as np
 
-# --------------------------------------------------
+# -----------------------------
 # Page config
-# --------------------------------------------------
+# -----------------------------
 st.set_page_config(
-    page_title="Polar CUDA – Operational Risk Monitor",
-    layout="wide",
+    page_title="Polar CUDA – Fleet Risk Monitor",
+    layout="wide"
 )
 
-# --------------------------------------------------
-# Header
-# --------------------------------------------------
-today = datetime.date.today()
-
-st.markdown("## 🧊 Polar CUDA")
-st.caption(f"Date: {today}")
-
-# --------------------------------------------------
-# Region selector (operational view)
-# --------------------------------------------------
+# -----------------------------
+# Sidebar: Region selection
+# -----------------------------
 REGIONS = {
     "Entire Arctic (Pan-Arctic)": 47.6,
-    "Chukchi Sea": 52.3,
-    "Beaufort Sea": 44.8,
-    "East Siberian Sea": 58.1,
-    "Laptev Sea": 61.5,
+    "Beaufort Sea": 52.1,
+    "Chukchi Sea": 49.3,
+    "East Siberian Sea": 55.4,
+    "Laptev Sea": 58.2,
+    "Kara Sea": 50.7
 }
 
-region = st.selectbox("Select Region", list(REGIONS.keys()))
-risk_index = REGIONS[region]
+selected_region = st.selectbox(
+    "Select Region",
+    list(REGIONS.keys())
+)
 
-# Dummy yesterday value (placeholder for real data)
-yesterday_risk = risk_index - 0.8
-delta = risk_index - yesterday_risk
+# -----------------------------
+# Date
+# -----------------------------
+today = datetime.date.today()
+st.caption(f"Date: {today}")
 
-# --------------------------------------------------
-# Risk category
-# --------------------------------------------------
-def risk_category(value):
+# -----------------------------
+# Risk values (placeholder → real data replaceable)
+# -----------------------------
+current_risk = REGIONS[selected_region]
+yesterday_risk = current_risk - np.random.uniform(-1.5, 1.5)
+delta = round(current_risk - yesterday_risk, 1)
+
+# -----------------------------
+# Status classification
+# -----------------------------
+def risk_status(value):
     if value < 30:
         return "Low", "🟢"
-    elif value < 60:
-        return "Moderate", "🟡"
+    elif value < 50:
+        return "Moderate", "🟢"
+    elif value < 70:
+        return "High", "🟠"
     else:
-        return "High", "🔴"
+        return "Extreme", "🔴"
 
-status, icon = risk_category(risk_index)
+status_text, status_icon = risk_status(current_risk)
 
-# --------------------------------------------------
-# Gauge (visual only – professional style)
-# --------------------------------------------------
-fig = go.Figure(
-    go.Indicator(
-        mode="gauge+number",
-        value=risk_index,
-        number={"suffix": " / 100"},
-        gauge={
-            "axis": {"range": [0, 100]},
-            "bar": {"color": "#4da6ff"},
-            "steps": [
-                {"range": [0, 30], "color": "#1f3d2b"},
-                {"range": [30, 60], "color": "#2f4f4f"},
-                {"range": [60, 100], "color": "#4f2f2f"},
-            ],
-            "threshold": {
-                "line": {"color": "white", "width": 4},
-                "thickness": 0.75,
-                "value": risk_index,
-            },
-        },
-    )
-)
+# -----------------------------
+# Header
+# -----------------------------
+st.title("🧊 Polar CUDA")
+st.subheader("Polar Risk Index – Operational View")
 
-fig.update_layout(
-    height=360,
-    margin=dict(l=20, r=20, t=20, b=20),
-    paper_bgcolor="#0e1117",
-    font={"color": "white"},
-)
-
-# --------------------------------------------------
-# Layout
-# --------------------------------------------------
-col1, col2 = st.columns([1, 2])
+# -----------------------------
+# Main KPI
+# -----------------------------
+col1, col2 = st.columns([1, 3])
 
 with col1:
-    st.subheader("Polar Risk Index")
-    st.markdown(f"### {risk_index:.1f} / 100")
-    st.markdown(
-        f"{icon} **{status}**  "
-        f"{'▲' if delta > 0 else '▼'} {abs(delta):.1f} vs yesterday"
+    st.metric(
+        label="Current Risk Index",
+        value=f"{current_risk:.1f} / 100",
+        delta=f"{delta:+.1f}"
     )
+    st.markdown(f"**Status:** {status_icon} {status_text}")
 
 with col2:
-    st.plotly_chart(fig, use_container_width=True)
+    st.progress(int(current_risk))
 
-# --------------------------------------------------
+# -----------------------------
 # Guidance
-# --------------------------------------------------
-if status == "Low":
-    guidance = "Conditions are favorable for navigation with routine monitoring."
-elif status == "Moderate":
-    guidance = "Conditions are generally manageable, but localized or short-term risks may be present."
-else:
-    guidance = "Elevated operational risk. Enhanced ice navigation and contingency planning recommended."
+# -----------------------------
+GUIDANCE = {
+    "Low": "Conditions are generally favorable for operations.",
+    "Moderate": "Conditions are manageable, but localized or short-term risks may be present.",
+    "High": "Operational caution advised. Ice, wind, or drift may restrict maneuverability.",
+    "Extreme": "Operations not recommended without icebreaker escort and contingency planning."
+}
 
-st.info(f"**Guidance:** {guidance}")
+st.info(f"**Guidance:** {GUIDANCE[status_text]}")
 
-# --------------------------------------------------
-# 7-day trend (placeholder → real data 연결 예정)
-# --------------------------------------------------
-st.subheader("7-day Risk Trend")
-
+# -----------------------------
+# 7-day trend (synthetic but structured)
+# -----------------------------
 dates = pd.date_range(end=today, periods=7)
-trend = np.linspace(risk_index - 5, risk_index, 7)
+trend = np.linspace(current_risk - 3, current_risk, 7) + np.random.normal(0, 0.4, 7)
 
-trend_df = pd.DataFrame({"Date": dates, "Risk Index": trend})
+trend_df = pd.DataFrame({
+    "Date": dates,
+    "Risk Index": trend
+})
 
+st.markdown("### 7-day Risk Trend")
 st.line_chart(trend_df.set_index("Date"))
 
-# --------------------------------------------------
-# Footer – policy-grade disclaimer
-# --------------------------------------------------
+# -----------------------------
+# Operational interpretation (manager-focused)
+# -----------------------------
+st.markdown("### Operational Interpretation")
+st.write(
+    """
+- **Trend direction** supports short-term planning decisions (next 3–7 days).
+- **Region-specific view** enables fleet-level risk differentiation.
+- **Daily delta** highlights rapidly deteriorating or improving conditions.
+- Intended for **situational awareness**, not autonomous navigation.
+"""
+)
+
+# -----------------------------
+# Footer: Data policy & disclaimer
+# -----------------------------
 st.markdown("---")
 st.caption(
     """
-**Data sources (planned):** NOAA/NSIDC Sea Ice Index v4 (AMSR2), atmospheric reanalysis winds,
-sea-ice drift products.  
-**Notice:** This index is provided for situational awareness and fleet-level risk monitoring only.
-It does not constitute operational, navigational, or legal guidance.
+**Data sources (planned integration):**  
+NOAA/NSIDC Sea Ice Index Version 4 (AMSR2), wind reanalysis products, ice drift datasets.
+
+**Disclaimer:**  
+This index is provided for situational awareness and planning support only.  
+It does not constitute operational, navigational, or legal guidance.  
+Final decisions remain the responsibility of vessel masters and operators.
 """
 )
