@@ -177,3 +177,101 @@ It does not replace onboard navigation systems, ice services, or the judgment of
 Final operational decisions remain the responsibility of the operating company and ship masters.
 """
 )
+
+알겠습니다. 요청하신 대로 **“Status 판단 로직만 남기고 나머지는 전부 제거한 최소 코드”**로 다시 작성해 드리겠습니다.
+아래 코드는 복사 → app.py 전체에 붙여넣기 → 바로 실행 가능한 형태입니다.
+
+✅ 남기는 것
+
+Risk Index 값 (예시값)
+
+Status 분류 로직 (LOW / MODERATE / HIGH / EXTREME)
+
+상태 아이콘 + 상태명만 화면에 표시
+
+❌ 제거한 것
+
+지역 선택
+
+지수 계산식
+
+그래프 / 테이블
+
+트렌드 / 플릿 / 가이던스 / 면책 문구
+
+외부 데이터 연결
+
+🔹 최소 동작 코드 (Status 전용)
+import streamlit as st
+import datetime
+
+# ================================
+# Polar CUDA – Status Only
+# ================================
+
+st.set_page_config(
+    page_title="Polar CUDA – Status",
+    layout="centered"
+)
+
+# -------------------------------------------------
+# Date
+# -------------------------------------------------
+today = datetime.date.today()
+
+# -------------------------------------------------
+# Example Risk Index (임시값)
+# 👉 나중에 NSIDC 실데이터로 교체 가능
+# -------------------------------------------------
+risk_index = 47.6  # example value
+
+# -------------------------------------------------
+# Status Classification (핵심)
+# -------------------------------------------------
+if risk_index < 30:
+    status = "LOW"
+    color = "🟢"
+elif risk_index < 50:
+    status = "MODERATE"
+    color = "🟡"
+elif risk_index < 70:
+    status = "HIGH"
+    color = "🟠"
+else:
+    status = "EXTREME"
+    color = "🔴"
+
+# -------------------------------------------------
+# Display
+# -------------------------------------------------
+st.title("🧊 Polar CUDA")
+st.caption(f"Date: {today}")
+
+st.markdown("## Polar Risk Status")
+st.markdown(
+    f"""
+### {color} **{status}**
+Risk Index: **{risk_index} / 100**
+"""
+)
+
+✅ 이 상태에서 확인해야 할 것
+
+Streamlit 에러 없이 실행되는지
+
+화면에 LOW / MODERATE / HIGH / EXTREME 중 하나만 깔끔하게 표시되는지
+
+색상 이모지가 의도대로 나오는지
+
+다음 단계 (원하시면)
+
+이제 이 Status-only 코드를 기준으로:
+
+1️⃣ NSIDC v4 실데이터 연결
+2️⃣ 지역별 Status (Beaufort / Chukchi 등)
+3️⃣ Fleet / Operations 화면으로 확장
+
+을 한 단계씩 안전하게 다시 쌓을 수 있습니다.
+
+원하시면 다음으로
+👉 **“Status-only 코드에 NSIDC v4 실데이터만 연결한 버전”**을 바로 만들어 드리겠습니다.
