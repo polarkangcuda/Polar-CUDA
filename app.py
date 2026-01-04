@@ -1,156 +1,137 @@
 import streamlit as st
-import plotly.graph_objects as go
 import datetime
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
 
-# ==============================
-# Polar CUDA – Operations Gauge
-# ==============================
-
+# --------------------------------------------------
+# Page config
+# --------------------------------------------------
 st.set_page_config(
-    page_title="Polar CUDA – Operations Monitor",
-    layout="centered"
+    page_title="Polar CUDA – Operational Risk Monitor",
+    layout="wide",
 )
 
-# ------------------------------
-# Header (minimal, professional)
-# ------------------------------
+# --------------------------------------------------
+# Header
+# --------------------------------------------------
 today = datetime.date.today()
-st.markdown(
-    f"""
-    <div style="display:flex; align-items:center; gap:14px;">
-        <span style="font-size:40px;">🧊</span>
-        <div>
-            <div style="font-size:34px; font-weight:700;">Polar CUDA</div>
-            <div style="font-size:14px; color:#AAAAAA;">Date: {today}</div>
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
 
-st.markdown("<br>", unsafe_allow_html=True)
+st.markdown("## 🧊 Polar CUDA")
+st.caption(f"Date: {today}")
 
-# ------------------------------
-# Region selector (fleet-ready)
-# ------------------------------
-region = st.selectbox(
-    "Select Region",
-    [
-        "Entire Arctic (Pan-Arctic)",
-        "Beaufort Sea",
-        "Chukchi Sea",
-        "East Siberian Sea",
-        "Laptev Sea",
-        "Kara Sea"
-    ]
-)
-
-# ------------------------------
-# Example risk values
-# (→ later replaced by NSIDC v4)
-# ------------------------------
-region_risk = {
+# --------------------------------------------------
+# Region selector (operational view)
+# --------------------------------------------------
+REGIONS = {
     "Entire Arctic (Pan-Arctic)": 47.6,
-    "Beaufort Sea": 52.3,
-    "Chukchi Sea": 44.1,
-    "East Siberian Sea": 58.7,
-    "Laptev Sea": 61.9,
-    "Kara Sea": 39.8
+    "Chukchi Sea": 52.3,
+    "Beaufort Sea": 44.8,
+    "East Siberian Sea": 58.1,
+    "Laptev Sea": 61.5,
 }
 
-risk_index = region_risk[region]
+region = st.selectbox("Select Region", list(REGIONS.keys()))
+risk_index = REGIONS[region]
 
-# ------------------------------
-# Status label
-# ------------------------------
-if risk_index < 30:
-    status_label = "LOW"
-elif risk_index < 50:
-    status_label = "MODERATE"
-elif risk_index < 70:
-    status_label = "HIGH"
-else:
-    status_label = "EXTREME"
+# Dummy yesterday value (placeholder for real data)
+yesterday_risk = risk_index - 0.8
+delta = risk_index - yesterday_risk
 
-# ------------------------------
-# Plotly Gauge (Fear & Greed style)
-# ------------------------------
-fig = go.Figure(go.Indicator(
-    mode="gauge+number",
-    value=risk_index,
-    number={
-        "font": {"size": 64},
-        "suffix": ""
-    },
-    title={
-        "text": f"<b>{status_label}</b>",
-        "font": {"size": 20}
-    },
-    gauge={
-        "axis": {
-            "range": [0, 100],
-            "tickwidth": 1,
-            "tickcolor": "white"
+# --------------------------------------------------
+# Risk category
+# --------------------------------------------------
+def risk_category(value):
+    if value < 30:
+        return "Low", "🟢"
+    elif value < 60:
+        return "Moderate", "🟡"
+    else:
+        return "High", "🔴"
+
+status, icon = risk_category(risk_index)
+
+# --------------------------------------------------
+# Gauge (visual only – professional style)
+# --------------------------------------------------
+fig = go.Figure(
+    go.Indicator(
+        mode="gauge+number",
+        value=risk_index,
+        number={"suffix": " / 100"},
+        gauge={
+            "axis": {"range": [0, 100]},
+            "bar": {"color": "#4da6ff"},
+            "steps": [
+                {"range": [0, 30], "color": "#1f3d2b"},
+                {"range": [30, 60], "color": "#2f4f4f"},
+                {"range": [60, 100], "color": "#4f2f2f"},
+            ],
+            "threshold": {
+                "line": {"color": "white", "width": 4},
+                "thickness": 0.75,
+                "value": risk_index,
+            },
         },
-        "bar": {
-            "color": "#3498DB",
-            "thickness": 0.25
-        },
-        "steps": [
-            {"range": [0, 30], "color": "#1ABC9C"},    # SAFE
-            {"range": [30, 50], "color": "#F1C40F"},  # MODERATE
-            {"range": [50, 70], "color": "#E67E22"},  # HIGH
-            {"range": [70, 100], "color": "#E74C3C"}  # EXTREME
-        ],
-        "threshold": {
-            "line": {"color": "black", "width": 4},
-            "thickness": 0.8,
-            "value": risk_index
-        }
-    }
-))
+    )
+)
 
 fig.update_layout(
-    height=450,
-    margin=dict(l=20, r=20, t=40, b=20),
-    paper_bgcolor="rgba(0,0,0,0)",
-    font=dict(color="white")
+    height=360,
+    margin=dict(l=20, r=20, t=20, b=20),
+    paper_bgcolor="#0e1117",
+    font={"color": "white"},
 )
 
-# ------------------------------
-# Display (visual-first)
-# ------------------------------
-st.plotly_chart(fig, use_container_width=True)
+# --------------------------------------------------
+# Layout
+# --------------------------------------------------
+col1, col2 = st.columns([1, 2])
 
-# ------------------------------
-# Minimal guidance bar
-# ------------------------------
-st.markdown(
-    f"""
-    <div style="
-        margin-top:10px;
-        padding:14px;
-        border-radius:8px;
-        background-color:rgba(46, 204, 113, 0.15);
-        font-size:15px;
-    ">
-        <b>Operational Guidance:</b>
-        Conditions are generally manageable, but localized or short-term risks may be present.
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+with col1:
+    st.subheader("Polar Risk Index")
+    st.markdown(f"### {risk_index:.1f} / 100")
+    st.markdown(
+        f"{icon} **{status}**  "
+        f"{'▲' if delta > 0 else '▼'} {abs(delta):.1f} vs yesterday"
+    )
 
-# ------------------------------
-# Footer (policy-safe)
-# ------------------------------
-st.markdown("<br>", unsafe_allow_html=True)
-st.markdown(
+with col2:
+    st.plotly_chart(fig, use_container_width=True)
+
+# --------------------------------------------------
+# Guidance
+# --------------------------------------------------
+if status == "Low":
+    guidance = "Conditions are favorable for navigation with routine monitoring."
+elif status == "Moderate":
+    guidance = "Conditions are generally manageable, but localized or short-term risks may be present."
+else:
+    guidance = "Elevated operational risk. Enhanced ice navigation and contingency planning recommended."
+
+st.info(f"**Guidance:** {guidance}")
+
+# --------------------------------------------------
+# 7-day trend (placeholder → real data 연결 예정)
+# --------------------------------------------------
+st.subheader("7-day Risk Trend")
+
+dates = pd.date_range(end=today, periods=7)
+trend = np.linspace(risk_index - 5, risk_index, 7)
+
+trend_df = pd.DataFrame({"Date": dates, "Risk Index": trend})
+
+st.line_chart(trend_df.set_index("Date"))
+
+# --------------------------------------------------
+# Footer – policy-grade disclaimer
+# --------------------------------------------------
+st.markdown("---")
+st.caption(
     """
-    <div style="font-size:12px; color:#888888;">
-    Data sources (planned): NOAA/NSIDC Sea Ice Index v4 (AMSR2), wind reanalysis, ice drift products.<br>
-    This display is for situational awareness only and does not constitute operational or navigational guidance.
-    </div>
-    """,
-    unsafe_allow_html=True
+**Data sources (planned):** NOAA/NSIDC Sea Ice Index v4 (AMSR2), atmospheric reanalysis winds,
+sea-ice drift products.  
+**Notice:** This index is provided for situational awareness and fleet-level risk monitoring only.
+It does not constitute operational, navigational, or legal guidance.
+"""
 )
