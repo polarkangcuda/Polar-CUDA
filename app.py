@@ -1,178 +1,157 @@
 import streamlit as st
-import datetime
 import pandas as pd
+import datetime
 
-# =====================================================
-# Polar CUDA – Status Gauge (NSIDC v4 FINAL + DATE SAFE)
-# =====================================================
+# ==========================================
+# Polar CUDA – Polar Navigation Risk (STABLE)
+# ==========================================
 
 st.set_page_config(
-    page_title="Polar CUDA – Status",
+    page_title="Polar CUDA – Navigation Risk",
     layout="centered"
 )
 
-# -----------------------------------------------------
-# Today (local display 기준)
-# -----------------------------------------------------
+# ------------------------------------------
+# Date
+# ------------------------------------------
 today = datetime.date.today()
 
-# -----------------------------------------------------
-# Region Weights (Operations Logic)
-# -----------------------------------------------------
+# ------------------------------------------
+# Region settings (weight only, 안전)
+# ------------------------------------------
 REGIONS = {
     "Entire Arctic (Pan-Arctic)": 1.00,
+    "Beaufort Sea": 1.05,
     "Chukchi Sea": 1.10,
     "East Siberian Sea": 1.15,
-    "Beaufort Sea": 1.05,
     "Barents Sea": 0.90,
 }
 
-selected_region = st.selectbox(
-    "Select Region",
-    list(REGIONS.keys())
-)
+region = st.selectbox("Select Region", list(REGIONS.keys()))
+region_weight = REGIONS[region]
 
-region_weight = REGIONS[selected_region]
-
-# -----------------------------------------------------
-# Load NSIDC v4 Sea Ice Extent (BULLETPROOF)
-# -----------------------------------------------------
-NSIDC_URL = (
-    "https://noaadata.apps.nsidc.org/NOAA/G02135/"
-    "north/daily/data/N_seaice_extent_daily_v4.0.csv"
-)
-
-df = pd.read_csv(NSIDC_URL)
-
-# 1️⃣ 컬럼명 정규화
-df.columns = [c.strip().lower() for c in df.columns]
-
-# 2️⃣ 날짜 컬럼 처리 (date OR year/month/day)
-if "date" in df.columns:
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
-elif {"year", "month", "day"}.issubset(df.columns):
-    df["date"] = pd.to_datetime(
-        df[["year", "month", "day"]],
-        errors="coerce"
+# ------------------------------------------
+# Load NSIDC v4 Sea Ice Index (SAFE)
+# ------------------------------------------
+@st.cache_data(ttl=3600)
+def load_nsidc_v4():
+    url = (
+        "https://noaadata.apps.nsidc.org/NOAA/G02135/"
+        "north/daily/data/N_seaice_extent_daily_v4.0.csv"
     )
-else:
-    st.error("NSIDC dataset date format not recognized.")
-    st.stop()
 
-# 3️⃣ extent 컬럼 확인 및 숫자 변환
-if "extent" not in df.columns:
-    st.error("Extent column not found in NSIDC dataset.")
-    st.stop()
+    df = pd.read_csv(url)
+    df.columns = [c.strip().lower() for c in df.columns]
 
-df["extent"] = pd.to_numeric(df["extent"], errors="coerce")
+    # v4: date, extent
+    if "date" not in df.columns or "extent" not in df.columns:
+        raise ValueError("Required columns not found in NSIDC v4 dataset.")
 
-# 4️⃣ 필수 데이터 정리
-df = df[["date", "extent"]].dropna()
-df = df.sort_values("date")
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date", "extent"])
+    df = df.sort_values("date")
 
-if df.empty:
-    st.error("No valid NSIDC data available.")
-    st.stop()
+    return df
 
-# -----------------------------------------------------
-# ✅ 오늘 기준 '가장 최신' 관측값 선택 (핵심 수정)
-# -----------------------------------------------------
-df_valid = df[df["date"].dt.date <= today]
+df = load_nsidc_v4()
 
-if df_valid.empty:
-    st.error("No NSIDC data available up to today.")
-    st.stop()
+# ------------------------------------------
+# Latest available data
+# ------------------------------------------
+latest = df.iloc[-1]
+extent_today = float(latest["extent"])
+data_date = latest["date"].date()
 
-latest_row = df_valid.iloc[-1]
+# ------------------------------------------
+# Navigation Risk Logic (IMPORTANT FIX)
+# ------------------------------------------
+# Winter max reference (NSIDC climatology)
+MAX_ICE_EXTENT = 14.5  # million km²
 
-extent_today = float(latest_row["extent"])
-data_date = latest_row["date"].date()
-
-# -----------------------------------------------------
-# Risk Index (Explainable & Conservative)
-# -----------------------------------------------------
 risk_index = round(
     min(
-        max((12.0 - extent_today) / 12.0 * 100.0 * region_weight, 0.0),
+        max((extent_today / MAX_ICE_EXTENT) * 100.0 * region_weight, 0.0),
         100.0
     ),
     1
 )
 
-# -----------------------------------------------------
-# Status Classification
-# -----------------------------------------------------
+# ------------------------------------------
+# Status classification (navigation logic)
+# ------------------------------------------
 if risk_index < 30:
     status = "LOW"
     color = "🟢"
-    gauge = "🟢🟢🟢🟢⚪"
 elif risk_index < 50:
     status = "MODERATE"
     color = "🟡"
-    gauge = "🟢🟢🟢⚪⚪"
 elif risk_index < 70:
     status = "HIGH"
     color = "🟠"
-    gauge = "🟢🟢⚪⚪⚪"
 else:
     status = "EXTREME"
     color = "🔴"
-    gauge = "🟢⚪⚪⚪⚪"
 
-# -----------------------------------------------------
-# UI
-# -----------------------------------------------------
+# ------------------------------------------
+# Header
+# ------------------------------------------
 st.title("🧊 Polar CUDA")
 st.caption(f"Today: {today}")
-st.caption(f"Region: {selected_region}")
+st.caption(f"Region: {region}")
 st.caption(f"NSIDC Data Date (UTC): {data_date}")
 st.caption(f"Sea Ice Extent: {extent_today:.2f} million km²")
 
 st.markdown("---")
 
-st.markdown("## Polar Navigation Risk Gauge")
+# ------------------------------------------
+# Navigation Risk Gauge (NO external libs)
+# ------------------------------------------
+st.subheader("Polar Navigation Risk Gauge")
 
 st.markdown(
     f"""
 ### {color} **{status}**
-**Risk Index:** {risk_index} / 100  
-
-{gauge}
+**Risk Index:** {risk_index} / 100
 """
 )
+
+# Simple dial-style indicator (safe)
+segments = int(risk_index // 10)
+dial = "🟢" * min(segments, 3) + "🟡" * max(min(segments - 3, 2), 0) \
+       + "🟠" * max(min(segments - 5, 2), 0) + "🔴" * max(segments - 7, 0)
+
+st.markdown(f"**Risk Dial:** {dial}")
 
 st.progress(int(risk_index))
 
-# -----------------------------------------------------
-# Interpretation
-# -----------------------------------------------------
+# ------------------------------------------
+# Operational interpretation
+# ------------------------------------------
 st.markdown(
-    """
+    f"""
 **Operational Interpretation**
 
-This indicator reflects the most recent available NSIDC sea ice observation
-(as of the data date shown above).  
-NSIDC products are typically updated with a 1–3 day delay (UTC).
+Current conditions indicate **{status.lower()} navigation risk** for **{region}**.
 
-This dashboard provides high-level situational awareness only and does not
-replace onboard navigation systems or the judgment of vessel masters.
+This assessment is driven primarily by **seasonal ice coverage**.
+Winter conditions with extensive sea ice significantly increase
+ice interaction risk, maneuvering constraints, and operational uncertainty.
 """
 )
 
-# -----------------------------------------------------
-# Legal / Data Attribution
-# -----------------------------------------------------
+# ------------------------------------------
+# Legal / Data attribution
+# ------------------------------------------
 st.markdown("---")
 st.caption(
     """
-**Data Attribution & Legal Notice**
+**Data Source & Legal Notice**
 
-Sea ice extent data are provided by **NOAA/NSIDC Sea Ice Index Version 4 (G02135)**,
-an official **NOAA Open Data** product.
+Sea ice data are sourced from **NOAA/NSIDC Sea Ice Index, Version 4 (G02135)**,
+which is publicly available under NOAA Open Data policy.
 
-NOAA open data may be freely used, adapted, and redistributed with attribution.
-This dashboard does **not** constitute navigational, safety, or legal guidance.
-Final operational decisions remain the responsibility of vessel operators and masters.
+This application provides **situational awareness only** and does not replace
+official ice services, onboard navigation systems, or the judgment of vessel masters.
+Final operational decisions remain the responsibility of operators and ship masters.
 """
 )
