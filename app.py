@@ -59,3 +59,4 @@ st.caption(
     "Data sources (planned): NOAA/NSIDC Sea Ice Index v4 (AMSR2), wind reanalysis, ice drift products. "
     "This index is provided for situational awareness only and does not constitute operational or navigational guidance."
 )
+Update app.py with daily trend and change indicator
