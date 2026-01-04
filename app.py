@@ -24,17 +24,25 @@ REGIONS = {
     "Entire Arctic (Pan-Arctic)": 1.00,
 
     # Pacific Arctic
-    "Bering Sea": 0.85,        # 계절성 결빙, 비교적 개방적
-    "Chukchi Sea": 1.15,       # 북극 진입 관문, 변동성 큼
-    "Beaufort Sea": 1.10,      # 다년빙 잔존, 압력빙 위험
+    "Bering Sea": 0.85,          # 계절 결빙, 비교적 개방
+    "Chukchi Sea": 1.15,         # 북극 진입 관문
+    "Beaufort Sea": 1.10,        # 다년빙 잔존
 
     # Siberian Arctic
-    "East Siberian Sea": 1.20, # 얕은 수심 + 조기 결빙
-    "Laptev Sea": 1.25,        # 결빙 시작지, 신생빙 급증
-    "Kara Sea": 1.10,          # NSR 핵심, 계절 개방
+    "East Siberian Sea": 1.20,   # 얕은 수심 + 조기 결빙
+    "Laptev Sea": 1.25,          # 결빙 생성 핵심지
+    "Kara Sea": 1.10,            # NSR 핵심 구간
 
     # Atlantic Arctic
-    "Barents Sea": 0.90,       # 대서양 영향, 상대적 저위험
+    "Barents Sea": 0.90,         # 대서양 영향
+    "Greenland Sea": 1.00,       # 혼합빙 + 해빙 변동성
+    "Baffin Bay": 1.15,          # 두꺼운 계절빙, 협수로
+
+    # High Arctic
+    "Lincoln Sea": 1.30,         # 다년빙 밀집, 최고 난이도
+
+    # Sub-Arctic
+    "Sea of Okhotsk": 0.95,      # 계절 결빙, 연안 항로
 }
 
 region = st.selectbox("Select Region", list(REGIONS.keys()))
@@ -141,7 +149,7 @@ else:
     color = "🔴"
 
 # ------------------------------------------
-# Gauge-style display (emoji-based, stable)
+# Gauge-style display
 # ------------------------------------------
 st.subheader("Polar Navigation Risk Gauge")
 
