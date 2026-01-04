@@ -22,10 +22,19 @@ today = datetime.date.today()
 # ------------------------------------------
 REGIONS = {
     "Entire Arctic (Pan-Arctic)": 1.00,
-    "Beaufort Sea": 1.10,
-    "Chukchi Sea": 1.15,
-    "East Siberian Sea": 1.20,
-    "Barents Sea": 0.90,
+
+    # Pacific Arctic
+    "Bering Sea": 0.85,        # 계절성 결빙, 비교적 개방적
+    "Chukchi Sea": 1.15,       # 북극 진입 관문, 변동성 큼
+    "Beaufort Sea": 1.10,      # 다년빙 잔존, 압력빙 위험
+
+    # Siberian Arctic
+    "East Siberian Sea": 1.20, # 얕은 수심 + 조기 결빙
+    "Laptev Sea": 1.25,        # 결빙 시작지, 신생빙 급증
+    "Kara Sea": 1.10,          # NSR 핵심, 계절 개방
+
+    # Atlantic Arctic
+    "Barents Sea": 0.90,       # 대서양 영향, 상대적 저위험
 }
 
 region = st.selectbox("Select Region", list(REGIONS.keys()))
@@ -42,27 +51,24 @@ def load_nsidc_v4():
     )
 
     df = pd.read_csv(url)
-
-    # 원본 컬럼 백업
     raw_columns = list(df.columns)
 
-    # 1️⃣ 날짜 컬럼 자동 탐색
+    # 날짜 컬럼 자동 탐색
     date_col = None
     for col in df.columns:
         parsed = pd.to_datetime(df[col], errors="coerce")
         if parsed.notna().sum() > len(df) * 0.9:
-            date_col = col
             df["__date"] = parsed
+            date_col = col
             break
 
-    # 2️⃣ 해빙 면적 컬럼 자동 탐색
+    # 해빙 면적 컬럼 자동 탐색
     extent_col = None
     for col in df.columns:
         numeric = pd.to_numeric(df[col], errors="coerce")
-        # 수백~수천 단위면 일단 제외
         if numeric.notna().sum() > len(df) * 0.9 and numeric.max() > 5:
-            extent_col = col
             df["__extent"] = numeric
+            extent_col = col
             break
 
     if date_col is None or extent_col is None:
@@ -70,11 +76,7 @@ def load_nsidc_v4():
 
     df = df[["__date", "__extent"]].dropna()
     df = df.sort_values("__date").reset_index(drop=True)
-
-    df.rename(
-        columns={"__date": "date", "__extent": "extent"},
-        inplace=True
-    )
+    df.rename(columns={"__date": "date", "__extent": "extent"}, inplace=True)
 
     return df, raw_columns
 
@@ -88,7 +90,7 @@ st.caption(f"Today: {today}")
 st.caption(f"Region: {region}")
 
 # ------------------------------------------
-# If data load failed → graceful message
+# Fail-safe handling
 # ------------------------------------------
 if df is None or df.empty:
     st.error("⚠ Unable to parse NSIDC v4 dataset.")
@@ -104,15 +106,14 @@ extent_today = float(latest["extent"])
 data_date = latest["date"].date()
 
 st.caption(f"NSIDC Data Date (UTC): {data_date}")
-st.caption(f"Sea Ice Extent: {extent_today:.2f} million km²")
+st.caption(f"Sea Ice Extent (Pan-Arctic): {extent_today:.2f} million km²")
 
 st.markdown("---")
 
 # ------------------------------------------
 # Navigation Risk Logic (WINTER-CORRECT)
 # ------------------------------------------
-# Winter maximum reference
-MAX_ICE_EXTENT = 14.8  # million km² (Arctic max)
+MAX_ICE_EXTENT = 14.8  # Arctic winter max reference
 
 risk_index = round(
     np.clip(
@@ -140,7 +141,7 @@ else:
     color = "🔴"
 
 # ------------------------------------------
-# Gauge-style display (no external libs)
+# Gauge-style display (emoji-based, stable)
 # ------------------------------------------
 st.subheader("Polar Navigation Risk Gauge")
 
