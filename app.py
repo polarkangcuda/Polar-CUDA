@@ -4,7 +4,7 @@ import datetime
 import numpy as np
 
 # ==========================================
-# Polar CUDA – Navigation Risk (ULTRA STABLE)
+# Polar CUDA – Regional Navigation Risk
 # ==========================================
 
 st.set_page_config(
@@ -18,38 +18,45 @@ st.set_page_config(
 today = datetime.date.today()
 
 # ------------------------------------------
-# Region weights (navigation sensitivity)
+# Region list
 # ------------------------------------------
-REGIONS = {
-    "Entire Arctic (Pan-Arctic)": 1.00,
+REGIONS = [
+    "Entire Arctic (Pan-Arctic)",
+    "Sea of Okhotsk",
+    "Bering Sea",
+    "Chukchi Sea",
+    "Beaufort Sea",
+    "East Siberian Sea",
+    "Laptev Sea",
+    "Kara Sea",
+    "Barents Sea",
+    "Greenland Sea",
+    "Baffin Bay",
+    "Lincoln Sea",
+]
 
-    # Pacific Arctic
-    "Bering Sea": 0.85,          # 계절 결빙, 비교적 개방
-    "Chukchi Sea": 1.15,         # 북극 진입 관문
-    "Beaufort Sea": 1.10,        # 다년빙 잔존
+region = st.selectbox("Select Region", REGIONS)
 
-    # Siberian Arctic
-    "East Siberian Sea": 1.20,   # 얕은 수심 + 조기 결빙
-    "Laptev Sea": 1.25,          # 결빙 생성 핵심지
-    "Kara Sea": 1.10,            # NSR 핵심 구간
-
-    # Atlantic Arctic
-    "Barents Sea": 0.90,         # 대서양 영향
-    "Greenland Sea": 1.00,       # 혼합빙 + 해빙 변동성
-    "Baffin Bay": 1.15,          # 두꺼운 계절빙, 협수로
-
-    # High Arctic
-    "Lincoln Sea": 1.30,         # 다년빙 밀집, 최고 난이도
-
-    # Sub-Arctic
-    "Sea of Okhotsk": 0.95,      # 계절 결빙, 연안 항로
+# ------------------------------------------
+# Regional ice baseline (relative reference)
+# ------------------------------------------
+REGION_BASELINE = {
+    "Entire Arctic (Pan-Arctic)": 14.8,  # million km²
+    "Sea of Okhotsk": 1.5,
+    "Bering Sea": 1.2,
+    "Chukchi Sea": 2.5,
+    "Beaufort Sea": 3.0,
+    "East Siberian Sea": 3.5,
+    "Laptev Sea": 4.0,
+    "Kara Sea": 2.8,
+    "Barents Sea": 1.8,
+    "Greenland Sea": 2.2,
+    "Baffin Bay": 2.6,
+    "Lincoln Sea": 4.5,
 }
 
-region = st.selectbox("Select Region", list(REGIONS.keys()))
-region_weight = REGIONS[region]
-
 # ------------------------------------------
-# Load NSIDC v4 Sea Ice Index (FAIL-SAFE)
+# Load NSIDC v4 Sea Ice Index (robust)
 # ------------------------------------------
 @st.cache_data(ttl=3600)
 def load_nsidc_v4():
@@ -59,73 +66,79 @@ def load_nsidc_v4():
     )
 
     df = pd.read_csv(url)
-    raw_columns = list(df.columns)
 
-    # 날짜 컬럼 자동 탐색
+    # 자동 날짜 컬럼 탐색
     date_col = None
     for col in df.columns:
         parsed = pd.to_datetime(df[col], errors="coerce")
         if parsed.notna().sum() > len(df) * 0.9:
-            df["__date"] = parsed
+            df["_date"] = parsed
             date_col = col
             break
 
-    # 해빙 면적 컬럼 자동 탐색
+    # 자동 extent 컬럼 탐색
     extent_col = None
     for col in df.columns:
         numeric = pd.to_numeric(df[col], errors="coerce")
         if numeric.notna().sum() > len(df) * 0.9 and numeric.max() > 5:
-            df["__extent"] = numeric
+            df["_extent"] = numeric
             extent_col = col
             break
 
     if date_col is None or extent_col is None:
-        return None, raw_columns
+        return None
 
-    df = df[["__date", "__extent"]].dropna()
-    df = df.sort_values("__date").reset_index(drop=True)
-    df.rename(columns={"__date": "date", "__extent": "extent"}, inplace=True)
+    df = df[["_date", "_extent"]].dropna()
+    df = df.sort_values("_date").reset_index(drop=True)
+    df.rename(columns={"_date": "date", "_extent": "extent"}, inplace=True)
 
-    return df, raw_columns
+    return df
 
-df, raw_columns = load_nsidc_v4()
+df = load_nsidc_v4()
+
+# ------------------------------------------
+# Fail-safe
+# ------------------------------------------
+if df is None or df.empty:
+    st.error("Unable to load NSIDC v4 sea ice data.")
+    st.stop()
+
+# ------------------------------------------
+# Latest available observation (≤ today)
+# ------------------------------------------
+df_valid = df[df["date"].dt.date <= today]
+
+if df_valid.empty:
+    st.error("No valid NSIDC data available up to today.")
+    st.stop()
+
+latest = df_valid.iloc[-1]
+extent_today = float(latest["extent"])  # Pan-Arctic extent
+data_date = latest["date"].date()
 
 # ------------------------------------------
 # Header
 # ------------------------------------------
 st.title("🧊 Polar CUDA")
 st.caption(f"Today: {today}")
-st.caption(f"Region: {region}")
-
-# ------------------------------------------
-# Fail-safe handling
-# ------------------------------------------
-if df is None or df.empty:
-    st.error("⚠ Unable to parse NSIDC v4 dataset.")
-    st.caption("Detected columns:")
-    st.code(raw_columns)
-    st.stop()
-
-# ------------------------------------------
-# Latest available data
-# ------------------------------------------
-latest = df.iloc[-1]
-extent_today = float(latest["extent"])
-data_date = latest["date"].date()
-
 st.caption(f"NSIDC Data Date (UTC): {data_date}")
-st.caption(f"Sea Ice Extent (Pan-Arctic): {extent_today:.2f} million km²")
+st.caption(f"Selected Region: {region}")
 
 st.markdown("---")
 
 # ------------------------------------------
-# Navigation Risk Logic (WINTER-CORRECT)
+# Regional normalization logic (FIXED)
 # ------------------------------------------
-MAX_ICE_EXTENT = 14.8  # Arctic winter max reference
+pan_arctic_max = REGION_BASELINE["Entire Arctic (Pan-Arctic)"]
+regional_baseline = REGION_BASELINE[region]
 
+# Pan-Arctic extent → regional-equivalent intensity
+regional_equivalent = extent_today * (regional_baseline / pan_arctic_max)
+
+# Normalized regional risk (0–100)
 risk_index = round(
     np.clip(
-        (extent_today / MAX_ICE_EXTENT) * 100.0 * region_weight,
+        (regional_equivalent / regional_baseline) * 100,
         0,
         100
     ),
@@ -151,7 +164,7 @@ else:
 # ------------------------------------------
 # Gauge-style display
 # ------------------------------------------
-st.subheader("Polar Navigation Risk Gauge")
+st.subheader("Regional Navigation Risk")
 
 st.markdown(
     f"""
@@ -178,26 +191,28 @@ st.markdown(
     f"""
 **Operational Interpretation**
 
-Current sea ice conditions indicate **{status.lower()} navigation risk**
-for **{region}**.
+Based on the latest **Pan-Arctic sea ice extent** adjusted for
+the **typical ice regime of {region}**, the current navigation
+risk level is assessed as **{status.lower()}**.
 
-Winter-season ice extent strongly constrains route flexibility,
-escort requirements, and emergency maneuver margins.
+This reflects **relative seasonal severity**, not absolute ice thickness
+or local pressure conditions.
 """
 )
 
 # ------------------------------------------
-# Legal / Data Attribution
+# Legal / Attribution
 # ------------------------------------------
 st.markdown("---")
 st.caption(
     """
 **Data Source & Legal Notice**
 
-Sea ice extent data are sourced from **NOAA / NSIDC Sea Ice Index (G02135),
-Version 4**, provided under the NOAA Open Data policy.
+Sea ice extent data are provided by **NOAA / NSIDC Sea Ice Index (G02135),
+Version 4**, distributed under the NOAA Open Data policy.
 
 This application is for situational awareness only and does not replace
-official ice services, onboard navigation systems, or the judgment of vessel masters.
+official ice services, onboard navigation systems, or the judgment of
+vessel masters.
 """
 )
