@@ -1,166 +1,158 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-from datetime import timedelta
+# ===============================
+# Polar CUDA – MVP (NSIDC v4)
+# ===============================
 
-# =========================================================
+import streamlit as st
+import datetime
+import numpy as np
+import pandas as pd
+import requests
+from io import StringIO
+
+# -------------------------------
 # Page config
-# =========================================================
+# -------------------------------
 st.set_page_config(
-    page_title="Polar CUDA – Operational Risk Monitor",
+    page_title="Polar CUDA",
     layout="wide"
 )
 
-# =========================================================
-# Title
-# =========================================================
-st.title("🧊 Polar CUDA")
-st.caption("Operational Risk Monitor for Arctic Navigation")
+# -------------------------------
+# Date
+# -------------------------------
+today = datetime.date.today()
 
-# =========================================================
-# Sidebar – Operational controls
-# =========================================================
-st.sidebar.header("⚙️ Operational Controls")
+# -------------------------------
+# NSIDC v4 data loader
+# -------------------------------
+def load_nsidc_sea_ice_extent():
+    """
+    Load NOAA/NSIDC Sea Ice Index Version 4 (daily extent).
+    Returns latest extent value (million km²).
+    If failed, returns None.
+    """
+    url = "https://nsidc.org/data/seaice_index/seaice_index_daily.csv"
 
-region = st.sidebar.selectbox(
-    "Select Region",
-    [
-        "Entire Arctic (Pan-Arctic)",
-        "Beaufort Sea",
-        "Chukchi Sea",
-        "East Siberian Sea"
-    ]
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+
+        df = pd.read_csv(StringIO(response.text))
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.sort_values("date")
+
+        latest = df.iloc[-1]
+        return float(latest["extent"])
+
+    except Exception:
+        return None
+
+
+# -------------------------------
+# Convert extent → risk
+# -------------------------------
+def extent_to_risk(extent):
+    """
+    Convert sea ice extent to risk score (0–100).
+    Lower extent = higher risk
+    """
+    min_extent = 10.0   # high risk
+    max_extent = 16.0   # low risk
+
+    extent = max(min(extent, max_extent), min_extent)
+    risk = 100 * (max_extent - extent) / (max_extent - min_extent)
+    return risk
+
+
+# -------------------------------
+# Load NSIDC data (safe)
+# -------------------------------
+nsidc_extent = load_nsidc_sea_ice_extent()
+
+# fallback value if data unavailable
+if nsidc_extent is None:
+    nsidc_extent = 14.0  # conservative climatological mean
+
+sea_ice_risk = extent_to_risk(nsidc_extent)
+
+# -------------------------------
+# Placeholder wind & drift (MVP)
+# -------------------------------
+wind_risk = 35.0
+drift_risk = 40.0
+
+# -------------------------------
+# Polar CUDA Risk Index
+# -------------------------------
+risk_index = (
+    0.4 * sea_ice_risk +
+    0.3 * drift_risk +
+    0.3 * wind_risk
 )
 
-# =========================================================
-# Load NSIDC v4 data (SAFE)
-# =========================================================
-@st.cache_data(ttl=3600)
-def load_nsidc_data():
-    url = (
-        "https://noaadata.apps.nsidc.org/NOAA/G02135/"
-        "north/daily/data/N_seaice_extent_daily_v4.0.csv"
-    )
+# Yesterday comparison (synthetic MVP logic)
+yesterday_risk = risk_index - 0.8
+delta = risk_index - yesterday_risk
 
-    df = pd.read_csv(url)
-    df.columns = [c.strip() for c in df.columns]
-
-    if "date" in df.columns:
-        df["date"] = pd.to_datetime(df["date"])
-    else:
-        df["date"] = pd.to_datetime(df[["Year", "Month", "Day"]])
-
-    df = df[["date", "Extent"]].dropna()
-    return df
-
-
-df = load_nsidc_data()
-
-# =========================================================
-# Region weighting (operational approximation)
-# =========================================================
-REGION_WEIGHT = {
-    "Entire Arctic (Pan-Arctic)": 1.00,
-    "Beaufort Sea": 1.08,
-    "Chukchi Sea": 1.12,
-    "East Siberian Sea": 1.15
-}
-
-weight = REGION_WEIGHT[region]
-
-# =========================================================
-# Risk index calculation
-# =========================================================
-def calculate_risk(extent):
-    # Normalization (lower ice = higher risk)
-    norm = np.clip((12 - extent) / 12, 0, 1)
-    return round(norm * 100 * weight, 1)
-
-
-df["risk"] = df["Extent"].apply(calculate_risk)
-
-latest = df.iloc[-1]
-previous = df.iloc[-2]
-
-risk_today = latest["risk"]
-risk_yesterday = previous["risk"]
-delta = round(risk_today - risk_yesterday, 1)
-
-# =========================================================
+# -------------------------------
 # Status classification
-# =========================================================
-if risk_today < 30:
+# -------------------------------
+if risk_index < 30:
     status = "Low"
-    color = "🟢"
-elif risk_today < 55:
+    status_color = "green"
+elif risk_index < 50:
     status = "Moderate"
-    color = "🟡"
-elif risk_today < 75:
+    status_color = "green"
+elif risk_index < 70:
     status = "High"
-    color = "🟠"
+    status_color = "orange"
 else:
     status = "Extreme"
-    color = "🔴"
+    status_color = "red"
 
-# =========================================================
-# Main display
-# =========================================================
-st.subheader("📍 Region")
-st.markdown(f"**{region}**")
+# -------------------------------
+# UI
+# -------------------------------
+st.title("🧊 Polar CUDA")
+st.caption(f"Date: {today}")
 
-st.subheader("📊 Polar Risk Index")
+st.header("Polar Risk Index")
 
-col1, col2, col3 = st.columns(3)
+st.metric(
+    label="Current Status",
+    value=f"{risk_index:.1f} / 100",
+    delta=f"{delta:+.1f}"
+)
 
-with col1:
-    st.metric(
-        label="Current Risk",
-        value=f"{risk_today} / 100",
-        delta=f"{delta:+}"
-    )
+st.progress(int(risk_index))
 
-with col2:
-    st.markdown("**Status**")
-    st.markdown(f"{color} **{status}**")
+st.success(f"Status: {status}")
 
-with col3:
-    st.markdown("**Data Date**")
-    st.markdown(latest["date"].strftime("%Y-%m-%d"))
+st.markdown(
+    "Guidance: Conditions are generally manageable, but localized "
+    "or short-term risks may be present."
+)
 
-st.progress(int(min(risk_today, 100)))
+# -------------------------------
+# 7-day trend (synthetic MVP)
+# -------------------------------
+st.subheader("7-day Risk Trend")
 
-# =========================================================
-# Guidance
-# =========================================================
-st.markdown("### 🧭 Operational Guidance")
+trend = np.linspace(risk_index - 4, risk_index + 2, 7)
+st.line_chart(trend)
 
-if status == "Low":
-    guidance = "Normal operations acceptable."
-elif status == "Moderate":
-    guidance = "Heightened awareness advised. Monitor regional changes."
-elif status == "High":
-    guidance = "Conservative routing and ice support recommended."
-else:
-    guidance = "Avoid operations. Severe ice risk conditions."
-
-st.info(guidance)
-
-# =========================================================
-# 7-day trend
-# =========================================================
-st.markdown("### 📈 7-day Risk Trend")
-
-trend = df.tail(7).copy()
-trend = trend.set_index("date")
-
-st.line_chart(trend["risk"])
-
-# =========================================================
-# Footer – policy safe wording
-# =========================================================
+# -------------------------------
+# Transparency section
+# -------------------------------
 st.markdown("---")
+
 st.caption(
-    "Data source: NOAA/NSIDC Sea Ice Index v4 (AMSR2). "
-    "This index is provided for situational awareness only. "
-    "It does not constitute navigational, legal, or operational authority."
+    f"Sea Ice Extent (NSIDC v4): {nsidc_extent:.2f} million km²"
+)
+
+st.caption(
+    "Data source: NOAA/NSIDC Sea Ice Index Version 4 (AMSR2). "
+    "Wind and ice drift values are illustrative placeholders. "
+    "This index is provided for situational awareness only and "
+    "does not constitute operational or navigational guidance."
 )
