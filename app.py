@@ -1,9 +1,10 @@
 import streamlit as st
 import pandas as pd
 import datetime
+import numpy as np
 
 # ==========================================
-# Polar CUDA – Polar Navigation Risk (STABLE)
+# Polar CUDA – Navigation Risk (ULTRA STABLE)
 # ==========================================
 
 st.set_page_config(
@@ -17,13 +18,13 @@ st.set_page_config(
 today = datetime.date.today()
 
 # ------------------------------------------
-# Region settings (weight only)
+# Region weights (navigation sensitivity)
 # ------------------------------------------
 REGIONS = {
     "Entire Arctic (Pan-Arctic)": 1.00,
-    "Beaufort Sea": 1.05,
-    "Chukchi Sea": 1.10,
-    "East Siberian Sea": 1.15,
+    "Beaufort Sea": 1.10,
+    "Chukchi Sea": 1.15,
+    "East Siberian Sea": 1.20,
     "Barents Sea": 0.90,
 }
 
@@ -31,7 +32,7 @@ region = st.selectbox("Select Region", list(REGIONS.keys()))
 region_weight = REGIONS[region]
 
 # ------------------------------------------
-# Load NSIDC v4 Sea Ice Index (ROBUST)
+# Load NSIDC v4 Sea Ice Index (FAIL-SAFE)
 # ------------------------------------------
 @st.cache_data(ttl=3600)
 def load_nsidc_v4():
@@ -42,37 +43,58 @@ def load_nsidc_v4():
 
     df = pd.read_csv(url)
 
-    # 컬럼명 정규화
-    df.columns = [c.strip().lower() for c in df.columns]
+    # 원본 컬럼 백업
+    raw_columns = list(df.columns)
 
-    # date 컬럼 탐색
+    # 1️⃣ 날짜 컬럼 자동 탐색
     date_col = None
-    for c in df.columns:
-        if "date" in c:
-            date_col = c
+    for col in df.columns:
+        parsed = pd.to_datetime(df[col], errors="coerce")
+        if parsed.notna().sum() > len(df) * 0.9:
+            date_col = col
+            df["__date"] = parsed
             break
 
-    # extent 컬럼 탐색
+    # 2️⃣ 해빙 면적 컬럼 자동 탐색
     extent_col = None
-    for c in df.columns:
-        if "extent" in c:
-            extent_col = c
+    for col in df.columns:
+        numeric = pd.to_numeric(df[col], errors="coerce")
+        # 수백~수천 단위면 일단 제외
+        if numeric.notna().sum() > len(df) * 0.9 and numeric.max() > 5:
+            extent_col = col
+            df["__extent"] = numeric
             break
 
     if date_col is None or extent_col is None:
-        raise ValueError(
-            f"NSIDC v4 format changed. Columns found: {list(df.columns)}"
-        )
+        return None, raw_columns
 
-    df["date"] = pd.to_datetime(df[date_col], errors="coerce")
-    df["extent"] = pd.to_numeric(df[extent_col], errors="coerce")
+    df = df[["__date", "__extent"]].dropna()
+    df = df.sort_values("__date").reset_index(drop=True)
 
-    df = df.dropna(subset=["date", "extent"])
-    df = df.sort_values("date").reset_index(drop=True)
+    df.rename(
+        columns={"__date": "date", "__extent": "extent"},
+        inplace=True
+    )
 
-    return df
+    return df, raw_columns
 
-df = load_nsidc_v4()
+df, raw_columns = load_nsidc_v4()
+
+# ------------------------------------------
+# Header
+# ------------------------------------------
+st.title("🧊 Polar CUDA")
+st.caption(f"Today: {today}")
+st.caption(f"Region: {region}")
+
+# ------------------------------------------
+# If data load failed → graceful message
+# ------------------------------------------
+if df is None or df.empty:
+    st.error("⚠ Unable to parse NSIDC v4 dataset.")
+    st.caption("Detected columns:")
+    st.code(raw_columns)
+    st.stop()
 
 # ------------------------------------------
 # Latest available data
@@ -81,16 +103,22 @@ latest = df.iloc[-1]
 extent_today = float(latest["extent"])
 data_date = latest["date"].date()
 
+st.caption(f"NSIDC Data Date (UTC): {data_date}")
+st.caption(f"Sea Ice Extent: {extent_today:.2f} million km²")
+
+st.markdown("---")
+
 # ------------------------------------------
-# Navigation Risk Logic (WINTER-SAFE)
+# Navigation Risk Logic (WINTER-CORRECT)
 # ------------------------------------------
-# Reference maximum winter extent
-MAX_ICE_EXTENT = 14.5  # million km²
+# Winter maximum reference
+MAX_ICE_EXTENT = 14.8  # million km² (Arctic max)
 
 risk_index = round(
-    min(
-        max((extent_today / MAX_ICE_EXTENT) * 100.0 * region_weight, 0.0),
-        100.0
+    np.clip(
+        (extent_today / MAX_ICE_EXTENT) * 100.0 * region_weight,
+        0,
+        100
     ),
     1
 )
@@ -112,18 +140,7 @@ else:
     color = "🔴"
 
 # ------------------------------------------
-# Header
-# ------------------------------------------
-st.title("🧊 Polar CUDA")
-st.caption(f"Today: {today}")
-st.caption(f"Region: {region}")
-st.caption(f"NSIDC Data Date (UTC): {data_date}")
-st.caption(f"Sea Ice Extent: {extent_today:.2f} million km²")
-
-st.markdown("---")
-
-# ------------------------------------------
-# Navigation Risk Gauge (No external libs)
+# Gauge-style display (no external libs)
 # ------------------------------------------
 st.subheader("Polar Navigation Risk Gauge")
 
@@ -134,12 +151,12 @@ st.markdown(
 """
 )
 
-segments = int(risk_index // 10)
+filled = int(risk_index // 10)
 dial = (
-    "🟢" * min(segments, 3)
-    + "🟡" * max(min(segments - 3, 2), 0)
-    + "🟠" * max(min(segments - 5, 2), 0)
-    + "🔴" * max(segments - 7, 0)
+    "🟢" * min(filled, 3)
+    + "🟡" * max(min(filled - 3, 2), 0)
+    + "🟠" * max(min(filled - 5, 2), 0)
+    + "🔴" * max(filled - 7, 0)
 )
 
 st.markdown(f"**Risk Dial:** {dial}")
@@ -152,25 +169,26 @@ st.markdown(
     f"""
 **Operational Interpretation**
 
-Current conditions indicate **{status.lower()} navigation risk** for **{region}**.
+Current sea ice conditions indicate **{status.lower()} navigation risk**
+for **{region}**.
 
-Winter-season sea ice extent is the dominant driver of operational risk,
-affecting route availability, maneuvering margins, and escort requirements.
+Winter-season ice extent strongly constrains route flexibility,
+escort requirements, and emergency maneuver margins.
 """
 )
 
 # ------------------------------------------
-# Legal / Data attribution
+# Legal / Data Attribution
 # ------------------------------------------
 st.markdown("---")
 st.caption(
     """
 **Data Source & Legal Notice**
 
-Sea ice data are sourced from **NOAA/NSIDC Sea Ice Index, Version 4 (G02135)**,
-distributed under NOAA Open Data policy.
+Sea ice extent data are sourced from **NOAA / NSIDC Sea Ice Index (G02135),
+Version 4**, provided under the NOAA Open Data policy.
 
-This application provides situational awareness only and does not replace
+This application is for situational awareness only and does not replace
 official ice services, onboard navigation systems, or the judgment of vessel masters.
 """
 )
