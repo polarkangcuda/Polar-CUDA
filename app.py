@@ -1,213 +1,310 @@
-import streamlit as st
+﻿import streamlit as st
 import pandas as pd
+import datetime
 import numpy as np
-import datetime as dt
 
-# =========================================================
-# POLAR CUDA – Fleet Operations Dashboard
-# =========================================================
+# =====================================================
+# POLAR CUDA – Cryospheric Unified Decision Assistant
+# (Regional Navigation Risk – Situational Awareness)
+# =====================================================
 
-st.set_page_config(page_title="POLAR CUDA – Fleet Ops", layout="wide")
-UTC_TODAY = dt.datetime.utcnow().date()
-
-# ---------------------------------------------------------
-# Optional dependencies (do NOT crash if missing)
-# ---------------------------------------------------------
-HAS_XARRAY = False
-HAS_NETCDF4 = False
-HAS_PLOTLY = False
-
-try:
-    import xarray as xr
-    HAS_XARRAY = True
-except Exception:
-    pass
-
-try:
-    from netCDF4 import Dataset, num2date
-    HAS_NETCDF4 = True
-except Exception:
-    pass
-
-try:
-    import plotly.graph_objects as go
-    HAS_PLOTLY = True
-except Exception:
-    pass
-
-
-# ---------------------------------------------------------
-# Regions (bbox approximation)
-# ---------------------------------------------------------
-REGIONS = {
-    "Chukchi Sea": {"lat": (66, 75), "lon": (-180, -157)},
-    "Beaufort Sea": {"lat": (70, 78), "lon": (-155, -120)},
-    "East Siberian Sea": {"lat": (70, 80), "lon": (140, 180)},
-    "Laptev Sea": {"lat": (72, 80), "lon": (105, 140)},
-    "Kara Sea": {"lat": (70, 80), "lon": (50, 90)},
-    "Barents Sea": {"lat": (70, 80), "lon": (20, 60)},
-    "Greenland Sea": {"lat": (70, 80), "lon": (-20, 20)},
-    "Baffin Bay": {"lat": (65, 78), "lon": (-80, -50)},
-    "Lincoln Sea": {"lat": (80, 88), "lon": (-110, -40)},
-}
-
-REGION_LIST = list(REGIONS.keys())
-
-
-# ---------------------------------------------------------
-# Helper functions
-# ---------------------------------------------------------
-def lon_to_180(lon):
-    lon = np.array(lon)
-    return ((lon + 180) % 360) - 180
-
-
-def classify_status(val):
-    if val < 15:
-        return "LOW", "🟢"
-    elif val < 35:
-        return "MODERATE", "🟡"
-    elif val < 60:
-        return "HIGH", "🟠"
-    else:
-        return "EXTREME", "🔴"
-
-
-def semicircle_gauge(val, title):
-    fig = go.Figure(
-        go.Indicator(
-            mode="gauge+number",
-            value=float(val),
-            number={"suffix": " %"},
-            title={"text": title},
-            gauge={
-                "axis": {"range": [0, 100]},
-                "steps": [
-                    {"range": [0, 15], "color": "#d7f5d7"},
-                    {"range": [15, 35], "color": "#fff4c2"},
-                    {"range": [35, 60], "color": "#ffd1a6"},
-                    {"range": [60, 100], "color": "#ffb3b3"},
-                ],
-            },
-        )
-    )
-    fig.update_layout(height=240, margin=dict(l=10, r=10, t=40, b=0))
-    return fig
-
-
-# =========================================================
-# UI
-# =========================================================
-st.title("🧊 POLAR CUDA – Fleet Operations")
-st.caption("Cryospheric Unified Decision Assistant")
-st.caption(f"UTC Date: {UTC_TODAY}")
-
-region = st.selectbox("Select Region", REGION_LIST)
-
-st.markdown("---")
-
-# =========================================================
-# Dependency guard
-# =========================================================
-if not (HAS_XARRAY or HAS_NETCDF4):
-    st.warning("MASAM2 NetCDF reader is not available in this environment.")
-    st.info(
-        "Add a requirements.txt file with:\n"
-        "xarray\nnetCDF4\nplotly\nnumpy\npandas\n\n"
-        "Then Commit → Streamlit Cloud → Manage app → Reboot."
-    )
-    st.stop()
-
-
-# =========================================================
-# MASAM2 loader
-# =========================================================
-@st.cache_data(ttl=3600)
-def load_masam2_latest():
-    year, month = UTC_TODAY.year, UTC_TODAY.month
-
-    def try_month(y, m):
-        url = (
-            f"https://noaadata.apps.nsidc.org/NOAA/G10005_V2/"
-            f"Data/{y}/masam2_minconc40_{y}{m:02d}_v2.nc"
-        )
-        if HAS_XARRAY:
-            return xr.open_dataset(url), url
-        else:
-            return Dataset(url), url
-
-    try:
-        return try_month(year, month)
-    except Exception:
-        prev = dt.date(year, month, 1) - dt.timedelta(days=1)
-        return try_month(prev.year, prev.month)
-
-
-# =========================================================
-# Compute regional concentration
-# =========================================================
-try:
-    ds, src_url = load_masam2_latest()
-
-    if HAS_XARRAY:
-        conc = ds["sea_ice_concentration"].isel(time=-1).values
-        lat = ds["latitude"].values
-        lon = lon_to_180(ds["longitude"].values)
-        data_date = pd.to_datetime(ds["time"].values[-1]).date()
-    else:
-        time_var = ds.variables["time"]
-        times = num2date(time_var[:], time_var.units)
-        data_date = times[-1].date()
-        conc = ds.variables["sea_ice_concentration"][-1, :, :]
-        lat = ds.variables["latitude"][:, :]
-        lon = lon_to_180(ds.variables["longitude"][:, :])
-
-    spec = REGIONS[region]
-    mask = (
-        (lat >= spec["lat"][0]) & (lat <= spec["lat"][1]) &
-        (lon >= spec["lon"][0]) & (lon <= spec["lon"][1]) &
-        (conc >= 0) & (conc <= 100)
-    )
-
-    mean_conc = float(np.nanmean(conc[mask]))
-
-except Exception as e:
-    st.error("Failed to compute regional ice concentration.")
-    st.exception(e)
-    st.stop()
-
-
-# =========================================================
-# Display
-# =========================================================
-risk = round(mean_conc, 1)
-status, icon = classify_status(risk)
-
-st.subheader("Regional Navigation Risk (Grid-based)")
-st.caption(f"MASAM2 Data Date (UTC): {data_date}")
-st.caption(f"Source: {src_url}")
-
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    if HAS_PLOTLY:
-        st.plotly_chart(semicircle_gauge(risk, region), use_container_width=True)
-    else:
-        st.metric(label=region, value=f"{risk} %")
-        st.progress(int(risk))
-
-with col2:
-    st.markdown(f"## {icon} {status}")
-    st.markdown(f"**Mean Ice Concentration:** {risk} %")
-
-st.markdown(
-    "This value represents the mean sea-ice concentration (%) computed directly "
-    "from the NSIDC MASAM2 4 km grid for situational awareness only."
+st.set_page_config(
+    page_title="POLAR CUDA – Cryospheric Unified Decision Assistant",
+    layout="centered"
 )
 
+today = datetime.date.today()
+
+# -----------------------------------------------------
+# Regions (Sea of Okhotsk intentionally excluded)
+# -----------------------------------------------------
+REGIONS = [
+    "Entire Arctic (Pan-Arctic)",
+    "Bering Sea",
+    "Chukchi Sea",
+    "Beaufort Sea",
+    "East Siberian Sea",
+    "Laptev Sea",
+    "Kara Sea",
+    "Barents Sea",
+    "Greenland Sea",
+    "Baffin Bay",
+    "Lincoln Sea",
+]
+
+# -----------------------------------------------------
+# Regional climatological range (winter_max, summer_min)
+# NOTE: These are operational normalization references
+# (not a scientific climatology claim). Used for
+# situational awareness scaling across regions.
+# -----------------------------------------------------
+REGION_CLIMATOLOGY = {
+    "Entire Arctic (Pan-Arctic)": (15.5, 4.0),
+    "Bering Sea": (1.8, 0.2),
+    "Chukchi Sea": (2.8, 0.5),
+    "Beaufort Sea": (3.2, 0.8),
+    "East Siberian Sea": (3.8, 1.0),
+    "Laptev Sea": (4.2, 1.2),
+    "Kara Sea": (3.0, 0.6),
+    "Barents Sea": (2.0, 0.2),
+    "Greenland Sea": (2.4, 0.4),
+    "Baffin Bay": (2.8, 0.6),
+    "Lincoln Sea": (4.8, 3.0),
+}
+
+# -----------------------------------------------------
+# NSIDC v4 Sea Ice Index loader (ULTRA SAFE)
+# - Avoids StopIteration / KeyError
+# - Works even if columns vary
+# -----------------------------------------------------
+@st.cache_data(ttl=3600)
+def load_nsidc_v4():
+    url = (
+        "https://noaadata.apps.nsidc.org/NOAA/G02135/"
+        "north/daily/data/N_seaice_extent_daily_v4.0.csv"
+    )
+
+    df = pd.read_csv(url)
+    df.columns = [c.strip().lower() for c in df.columns]
+
+    # Date column detection
+    date_col = None
+    for cand in ["date", "datetime", "time"]:
+        if cand in df.columns:
+            date_col = cand
+            break
+
+    # Fallback: year/month/day
+    if date_col is None:
+        if all(c in df.columns for c in ["year", "month", "day"]):
+            df["date"] = pd.to_datetime(df[["year", "month", "day"]], errors="coerce")
+            date_col = "date"
+        else:
+            return None, f"Unable to detect date column. Columns: {list(df.columns)}"
+
+    # Extent column detection
+    extent_col = None
+    for cand in ["extent", "seaice_extent", "total_extent"]:
+        if cand in df.columns:
+            extent_col = cand
+            break
+
+    # Fallback: numeric column with realistic magnitude
+    if extent_col is None:
+        for col in df.columns:
+            numeric = pd.to_numeric(df[col], errors="coerce")
+            if numeric.notna().sum() > len(df) * 0.9 and numeric.max() > 5:
+                extent_col = col
+                break
+
+    if extent_col is None:
+        return None, f"Unable to detect extent column. Columns: {list(df.columns)}"
+
+    df["date"] = pd.to_datetime(df[date_col], errors="coerce")
+    df["extent"] = pd.to_numeric(df[extent_col], errors="coerce")
+
+    df = df.dropna(subset=["date", "extent"])
+    df = df.sort_values("date").reset_index(drop=True)
+
+    return df, None
+
+
+# -----------------------------------------------------
+# Helper: status classification
+# -----------------------------------------------------
+def classify_status(risk_index: float):
+    if risk_index < 30:
+        return "LOW", "🟢"
+    if risk_index < 50:
+        return "MODERATE", "🟡"
+    if risk_index < 70:
+        return "HIGH", "🟠"
+    return "EXTREME", "🔴"
+
+
+# -----------------------------------------------------
+# Sidebar: identity + region selector
+# -----------------------------------------------------
+st.sidebar.title("POLAR CUDA")
+st.sidebar.caption("Cryospheric Unified Decision Assistant")
+region = st.sidebar.selectbox("Region", REGIONS, index=0)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("**Mode:** Situational Awareness")
+st.sidebar.markdown("**Not:** Navigational command system")
+
+# -----------------------------------------------------
+# Main tabs
+# -----------------------------------------------------
+tab_dashboard, tab_about, tab_definition, tab_logo = st.tabs(
+    ["🧭 Dashboard", "📄 About (IMO/Gov)", "📚 Formal Definition", "🎨 Logo/Icon Concept"]
+)
+
+# =====================================================
+# TAB 1: Dashboard
+# =====================================================
+with tab_dashboard:
+    st.title("🧊 POLAR CUDA")
+    st.caption("Cryospheric Unified Decision Assistant")
+    st.caption(f"Today: {today}")
+
+    # Load data
+    df, err = load_nsidc_v4()
+    if df is None or df.empty:
+        st.error("Unable to load NSIDC v4 sea ice data.")
+        if err:
+            st.caption(err)
+        st.stop()
+
+    df_valid = df[df["date"].dt.date <= today]
+    if df_valid.empty:
+        st.error("No valid NSIDC data available up to today.")
+        st.stop()
+
+    latest = df_valid.iloc[-1]
+    extent_today = float(latest["extent"])
+    data_date = latest["date"].date()
+
+    st.caption(f"NSIDC Data Date (UTC): {data_date}")
+    st.caption(f"Selected Region: {region}")
+
+    st.markdown("---")
+
+    # Risk computation (seasonal normalization proxy)
+    winter_max, summer_min = REGION_CLIMATOLOGY[region]
+    denom = (winter_max - summer_min) if (winter_max - summer_min) != 0 else 1e-9
+
+    risk_index = round(
+        float(np.clip(((extent_today - summer_min) / denom) * 100.0, 0, 100)),
+        1
+    )
+
+    status, color = classify_status(risk_index)
+
+    st.subheader("Regional Navigation Risk (Status-Based)")
+
+    st.markdown(
+        f"""
+### {color} **{status}**
+**Risk Index:** {risk_index} / 100
+"""
+    )
+    st.progress(int(risk_index))
+
+    st.markdown(
+        f"""
+**Operational Interpretation (Non-Directive)**
+
+This indicator expresses **relative seasonal ice severity** for **{region}**
+using a **regional normalization range** (winter–summer reference).
+
+It is intended to support **situational awareness** and **informed judgment**.
+It does **not** provide tactical route guidance, and it does **not**
+replace official ice services, onboard navigation systems, or vessel master judgment.
+"""
+    )
+
+# =====================================================
+# TAB 2: About (IMO/Gov)
+# =====================================================
+with tab_about:
+    st.header("About – POLAR CUDA (IMO/Government Style)")
+
+    st.markdown(
+        """
+**POLAR CUDA (Cryospheric Unified Decision Assistant)** is a decision-support framework
+designed to enhance situational awareness for navigation and operations in polar and
+ice-affected waters.
+
+The system integrates publicly available cryospheric datasets—such as satellite-derived
+sea ice extent—into a unified, regionally normalized risk index. By translating complex
+ice conditions into an intuitive status-based indicator, POLAR CUDA supports informed
+operational judgment without prescribing actions or replacing official ice services.
+
+POLAR CUDA is intended to complement existing navigational systems by providing an
+additional layer of contextual understanding, particularly for seasonal variability and
+regional ice regimes. It does not constitute navigational guidance and does not supersede
+the authority or responsibility of vessel masters, operators, or national ice services.
+
+All data used within POLAR CUDA are sourced from open-access datasets distributed under
+established public data policies.
+"""
+    )
+
+# =====================================================
+# TAB 3: Formal Definition (paper/white paper)
+# =====================================================
+with tab_definition:
+    st.header("Formal Definition – Academic / White Paper")
+
+    st.markdown(
+        """
+**POLAR CUDA (Cryospheric Unified Decision Assistant)** is defined as a modular
+decision-support system that converts multi-source cryospheric observations into a unified,
+interpretable risk metric for polar navigation and operations.
+
+The framework operates by normalizing large-scale cryospheric indicators—such as pan-Arctic
+sea ice extent—against region-specific seasonal reference ranges, thereby contextualizing
+seasonal severity relative to local ice regimes. This approach emphasizes *relative operational
+risk* rather than absolute ice presence, enabling cross-regional comparison without requiring
+high-resolution tactical data.
+
+POLAR CUDA is explicitly designed as an *assistant* rather than a directive system. Its outputs
+are interpretive in nature, supporting human decision-making while preserving operational
+responsibility and legal accountability at the operator level.
+
+The system prioritizes transparency, explainability, and robustness to data format variability,
+making it suitable for operational experimentation and policy-oriented risk communication.
+"""
+    )
+
+# =====================================================
+# TAB 4: Logo/Icon concept
+# =====================================================
+with tab_logo:
+    st.header("Logo / Icon Concept – Designer Brief")
+
+    st.markdown(
+        """
+**Concept Statement**  
+*POLAR CUDA visualizes the moment where ice data becomes decision awareness.*
+
+**Design Keywords**  
+- Minimal  
+- Instrument-like (not decorative)  
+- Calm, authoritative, non-alarmist  
+- Operational rather than scientific  
+
+**Icon Concept**  
+- A **half-dial / gauge arc** suggesting situational status rather than control  
+- Central element: a **simple ice or hexagonal grid motif**, abstract not literal  
+- Subtle directional cue (northward or polar-centered)  
+- Color logic aligned with risk states (green → yellow → orange → red), muted not saturated  
+
+**Avoid**  
+- Weather app look  
+- Emergency alert look  
+- Gaming UI  
+- Military command interface  
+
+**One-line instruction**  
+“This is a tool you glance at before deciding — not something that tells you what to do.”
+"""
+    )
+
+# -----------------------------------------------------
+# Footer: Data source & legal notice (always visible)
+# -----------------------------------------------------
 st.markdown("---")
 st.caption(
-    "Data Source: NOAA / NSIDC MASAM2 (G10005_V2). "
-    "This tool provides situational awareness only and does not replace "
-    "official ice services or navigational judgment."
+    """
+**Data Source & Legal Notice (NOAA/NSIDC Open Data)**
+
+Sea ice extent data are provided by **NOAA / NSIDC Sea Ice Index (G02135), Version 4**
+(derived from satellite observations including AMSR2) and distributed under NOAA open data principles.
+
+This application provides **situational awareness only** and does not replace official ice services,
+onboard navigation systems, or the judgment of vessel masters. Final operational decisions remain the
+responsibility of operators and vessel masters.
+"""
 )
