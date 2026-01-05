@@ -5,14 +5,13 @@ import datetime as dt
 
 # =========================================================
 # POLAR CUDA – Fleet Operations Dashboard
-# Real regional ice concentration (MASAM2-ready, SAFE)
 # =========================================================
 
 st.set_page_config(page_title="POLAR CUDA – Fleet Ops", layout="wide")
 UTC_TODAY = dt.datetime.utcnow().date()
 
 # ---------------------------------------------------------
-# Try optional dependencies (do NOT crash if missing)
+# Optional dependencies (do NOT crash if missing)
 # ---------------------------------------------------------
 HAS_XARRAY = False
 HAS_NETCDF4 = False
@@ -38,7 +37,7 @@ except Exception:
 
 
 # ---------------------------------------------------------
-# Regions (bbox approximation; ops-level)
+# Regions (bbox approximation)
 # ---------------------------------------------------------
 REGIONS = {
     "Chukchi Sea": {"lat": (66, 75), "lon": (-180, -157)},
@@ -108,21 +107,107 @@ region = st.selectbox("Select Region", REGION_LIST)
 st.markdown("---")
 
 # =========================================================
-# Dependency guard (CRITICAL)
+# Dependency guard
 # =========================================================
 if not (HAS_XARRAY or HAS_NETCDF4):
-    st.warning("⚠️ MASAM2 NetCDF reader is not available in this environment.")
-    st.markdown(
-        """
-### Action Required (1-time setup)
+    st.warning("MASAM2 NetCDF reader is not available in this environment.")
+    st.info(
+        "Add a requirements.txt file with:\n"
+        "xarray\nnetCDF4\nplotly\nnumpy\npandas\n\n"
+        "Then Commit → Streamlit Cloud → Manage app → Reboot."
+    )
+    st.stop()
 
-To enable **real regional ice concentration** calculations,  
-please add the following file to your GitHub repository root:
 
-**`requirements.txt`**
-```txt
-xarray
-netCDF4
-plotly
-numpy
-pandas
+# =========================================================
+# MASAM2 loader
+# =========================================================
+@st.cache_data(ttl=3600)
+def load_masam2_latest():
+    year, month = UTC_TODAY.year, UTC_TODAY.month
+
+    def try_month(y, m):
+        url = (
+            f"https://noaadata.apps.nsidc.org/NOAA/G10005_V2/"
+            f"Data/{y}/masam2_minconc40_{y}{m:02d}_v2.nc"
+        )
+        if HAS_XARRAY:
+            return xr.open_dataset(url), url
+        else:
+            return Dataset(url), url
+
+    try:
+        return try_month(year, month)
+    except Exception:
+        prev = dt.date(year, month, 1) - dt.timedelta(days=1)
+        return try_month(prev.year, prev.month)
+
+
+# =========================================================
+# Compute regional concentration
+# =========================================================
+try:
+    ds, src_url = load_masam2_latest()
+
+    if HAS_XARRAY:
+        conc = ds["sea_ice_concentration"].isel(time=-1).values
+        lat = ds["latitude"].values
+        lon = lon_to_180(ds["longitude"].values)
+        data_date = pd.to_datetime(ds["time"].values[-1]).date()
+    else:
+        time_var = ds.variables["time"]
+        times = num2date(time_var[:], time_var.units)
+        data_date = times[-1].date()
+        conc = ds.variables["sea_ice_concentration"][-1, :, :]
+        lat = ds.variables["latitude"][:, :]
+        lon = lon_to_180(ds.variables["longitude"][:, :])
+
+    spec = REGIONS[region]
+    mask = (
+        (lat >= spec["lat"][0]) & (lat <= spec["lat"][1]) &
+        (lon >= spec["lon"][0]) & (lon <= spec["lon"][1]) &
+        (conc >= 0) & (conc <= 100)
+    )
+
+    mean_conc = float(np.nanmean(conc[mask]))
+
+except Exception as e:
+    st.error("Failed to compute regional ice concentration.")
+    st.exception(e)
+    st.stop()
+
+
+# =========================================================
+# Display
+# =========================================================
+risk = round(mean_conc, 1)
+status, icon = classify_status(risk)
+
+st.subheader("Regional Navigation Risk (Grid-based)")
+st.caption(f"MASAM2 Data Date (UTC): {data_date}")
+st.caption(f"Source: {src_url}")
+
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    if HAS_PLOTLY:
+        st.plotly_chart(semicircle_gauge(risk, region), use_container_width=True)
+    else:
+        st.metric(label=region, value=f"{risk} %")
+        st.progress(int(risk))
+
+with col2:
+    st.markdown(f"## {icon} {status}")
+    st.markdown(f"**Mean Ice Concentration:** {risk} %")
+
+st.markdown(
+    "This value represents the mean sea-ice concentration (%) computed directly "
+    "from the NSIDC MASAM2 4 km grid for situational awareness only."
+)
+
+st.markdown("---")
+st.caption(
+    "Data Source: NOAA / NSIDC MASAM2 (G10005_V2). "
+    "This tool provides situational awareness only and does not replace "
+    "official ice services or navigational judgment."
+)
