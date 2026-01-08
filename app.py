@@ -6,7 +6,7 @@ import requests
 from io import BytesIO
 
 # =========================================================
-# POLAR CUDA – Level 3 (Winter-Aware Openability Proxy)
+# POLAR CUDA – Level 3 (Season-Aware Openability Proxy)
 # =========================================================
 
 st.set_page_config(
@@ -16,6 +16,18 @@ st.set_page_config(
 
 today = datetime.date.today()
 month = today.month
+
+# ---------------------------------------------------------
+# Season definition
+# ---------------------------------------------------------
+if month in [12, 1, 2, 3]:
+    SEASON = "winter"
+elif month in [4, 5]:
+    SEASON = "spring"
+elif month in [6, 7, 8, 9]:
+    SEASON = "summer"
+else:
+    SEASON = "autumn"
 
 # ---------------------------------------------------------
 # Sea Regions (12)
@@ -36,7 +48,7 @@ REGIONS = [
 ]
 
 # ---------------------------------------------------------
-# Winter-closed core seas (structural EXTREME)
+# Structurally winter-closed seas
 # ---------------------------------------------------------
 WINTER_CLOSED = {
     "Chukchi Sea",
@@ -47,13 +59,20 @@ WINTER_CLOSED = {
 }
 
 # ---------------------------------------------------------
-# Bremen AMSR2 PNG URL (daily, auto-updating)
+# Seasonal risk modifiers
+# ---------------------------------------------------------
+SEASON_MODIFIER = {
+    "winter": 1.00,
+    "spring": 0.85,   # thawing, leads increase
+    "summer": 0.65,   # open season
+    "autumn": 1.15,   # freeze-up risk amplification
+}
+
+# ---------------------------------------------------------
+# Bremen AMSR2 PNG (daily auto-update)
 # ---------------------------------------------------------
 BREMEN_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 
-# ---------------------------------------------------------
-# Load Bremen PNG (safe)
-# ---------------------------------------------------------
 @st.cache_data(ttl=3600)
 def load_bremen_png():
     try:
@@ -64,51 +83,45 @@ def load_bremen_png():
         return None
 
 # ---------------------------------------------------------
-# Simple color-based classification
+# Pixel classification (FIXED)
 # ---------------------------------------------------------
 def classify_pixel(rgb):
     r, g, b = rgb
-    # land (green)
-    if g > 180 and r < 100:
+
+    # Land: strong green dominance (coast/land mask)
+    if g > 170 and g > r * 1.2 and g > b * 1.2:
         return "land"
-    # open water (dark blue)
-    if b > 120 and g < 100:
+
+    # Open water: dark/deep blue
+    if b > 120 and b > r * 1.2 and b > g * 1.2:
         return "water"
-    # ice (everything else)
+
+    # Everything else = ice (all concentration colors)
     return "ice"
 
 # ---------------------------------------------------------
-# Bremen proxy stats (very conservative)
+# Compute openability proxy (conservative)
 # ---------------------------------------------------------
-def compute_openability_proxy(img):
+def compute_openability(img):
     arr = np.array(img)
     h, w, _ = arr.shape
 
-    total = 0
-    ice = 0
-    water = 0
+    ocean_pixels = 0
+    open_water = 0
 
     for y in range(0, h, 4):
         for x in range(0, w, 4):
             cls = classify_pixel(arr[y, x])
             if cls == "land":
                 continue
-            total += 1
-            if cls == "ice":
-                ice += 1
+            ocean_pixels += 1
             if cls == "water":
-                water += 1
+                open_water += 1
 
-    if total == 0:
+    if ocean_pixels == 0:
         return None
 
-    ice_ratio = ice / total
-    water_ratio = water / total
-
-    return {
-        "ice_ratio": ice_ratio,
-        "water_ratio": water_ratio,
-    }
+    return open_water / ocean_pixels
 
 # ---------------------------------------------------------
 # Status classification
@@ -127,47 +140,50 @@ def classify_status(risk):
 # =========================================================
 
 st.title("🧊 POLAR CUDA – Level 3")
-st.caption("Cryospheric Unified Decision Assistant (Operational Risk Proxy)")
-st.caption(f"Today (local): {today}")
+st.caption("Cryospheric Unified Decision Assistant")
+st.caption(f"Date (local): {today}")
+st.caption(f"Season detected: **{SEASON.upper()}**")
 
 region = st.selectbox("Select Sea Region", REGIONS)
 
 st.markdown("---")
 
 # ---------------------------------------------------------
-# Winter override logic
+# Core risk logic
 # ---------------------------------------------------------
-if month in [12, 1, 2, 3] and region in WINTER_CLOSED:
-    risk_index = 95.0
-    status, color = "EXTREME", "🔴"
-    proxy_note = "Winter structural closure (openability = effectively zero)."
+if SEASON == "winter" and region in WINTER_CLOSED:
+    base_risk = 95.0
+    reason = "Structural winter closure (openability effectively zero)."
 
 else:
     img = load_bremen_png()
     if img is None:
-        st.error("Unable to load Bremen AMSR2 image.")
+        st.error("Unable to load Bremen AMSR2 imagery.")
         st.stop()
 
-    stats = compute_openability_proxy(img)
-    if stats is None:
-        st.error("Unable to compute proxy statistics.")
+    open_ratio = compute_openability(img)
+    if open_ratio is None:
+        st.error("Unable to compute open water proxy.")
         st.stop()
 
-    # Conservative mapping:
-    # less open water → higher risk
-    risk_index = round(
-        np.clip((1.0 - stats["water_ratio"]) * 100.0, 0, 100),
-        1
-    )
-    status, color = classify_status(risk_index)
-    proxy_note = (
-        f"Open water ratio (proxy): {stats['water_ratio']*100:.1f}%"
-    )
+    base_risk = (1.0 - open_ratio) * 100.0
+    reason = f"Open water ratio (proxy): {open_ratio*100:.1f}%"
+
+# ---------------------------------------------------------
+# Seasonal adjustment
+# ---------------------------------------------------------
+risk_index = round(
+    np.clip(base_risk * SEASON_MODIFIER[SEASON], 0, 100),
+    1
+)
+
+status, color = classify_status(risk_index)
 
 # ---------------------------------------------------------
 # Display
 # ---------------------------------------------------------
-st.subheader("Regional Navigation Risk (Status-Based)")
+st.subheader("Regional Navigation Risk (Season-Aware)")
+
 st.markdown(f"### {color} **{status}**")
 st.markdown(f"**Risk Index:** {risk_index} / 100")
 st.progress(int(risk_index))
@@ -177,13 +193,13 @@ st.markdown(
 **Operational Interpretation (Non-Directive)**
 
 - Selected Region: **{region}**
-- Assessment Mode: **Level 3 (Winter-aware image-derived proxy)**
-- Note: {proxy_note}
+- Season Logic Applied: **{SEASON.upper()}**
+- Assessment Basis: **Openability proxy + seasonal modifier**
+- Note: {reason}
 
-This indicator represents **operational openability risk**, not an
-“open/closed route” declaration.  
-During Arctic winter, several seas are **structurally closed** regardless
-of small-scale leads visible in satellite imagery.
+This indicator expresses **relative operational risk** rather than
+route availability.  
+Seasonal dynamics (thawing, freeze-up) are explicitly incorporated.
 
 Final operational decisions remain with operators and vessel masters.
 """
@@ -195,8 +211,10 @@ st.caption(
 **Data Source & Legal Notice**
 
 Level 3 (Experimental): Image-derived proxy from the publicly accessible
-daily **Bremen AMSR2 sea-ice concentration PNG**.
-This is **not** an authoritative gridded concentration product and must not
-replace official ice services or navigational judgment.
+**Bremen AMSR2 daily sea-ice concentration PNG**.
+
+This application provides **situational awareness only** and does not
+replace official ice services, onboard navigation systems, or the
+judgment of vessel masters.
 """
 )
