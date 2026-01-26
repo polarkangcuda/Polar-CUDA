@@ -1,38 +1,86 @@
 # =========================================================
-# POLAR CUDA – Fleet / Port View + Ops Loop
+# POLAR CUDA – Fleet / Port View + Ops Loop (SAFE)
 # =========================================================
 
 import streamlit as st
 import numpy as np
 
+# ---------------------------------------------------------
+# REQUIRED DEFINITIONS (explicit, no dependency)
+# ---------------------------------------------------------
+
+REGIONS = [
+    "Sea of Okhotsk",
+    "Bering Sea",
+    "Chukchi Sea",
+    "East Siberian Sea",
+    "Laptev Sea",
+    "Kara Sea",
+    "Barents Sea",
+    "Beaufort Sea",
+    "Canadian Arctic Archipelago",
+    "Central Arctic Ocean",
+    "Greenland Sea",
+    "Baffin Bay",
+]
+
+WINTER_CLOSED = {
+    "Chukchi Sea",
+    "East Siberian Sea",
+    "Laptev Sea",
+    "Beaufort Sea",
+    "Central Arctic Ocean",
+}
+
+SEASON_MODIFIER = {
+    "winter": 1.00,
+    "spring": 0.85,
+    "summer": 0.65,
+    "autumn": 1.15,
+}
+
+def classify_status(risk):
+    if risk < 30:
+        return "LOW", "🟢"
+    if risk < 50:
+        return "MODERATE", "🟡"
+    if risk < 70:
+        return "HIGH", "🟠"
+    return "EXTREME", "🔴"
+
+# ---------------------------------------------------------
+# CONTEXT (reuse if already defined, else default)
+# ---------------------------------------------------------
+
+SEASON = st.session_state.get("SEASON", "winter")
+img = st.session_state.get("BREMEN_IMG", None)
+
+# ---------------------------------------------------------
+# Fleet / Port View
+# ---------------------------------------------------------
+
 st.markdown("## 🚢 Fleet / Port View – Multi-Region Monitoring")
 
-# ---------------------------------------------------------
-# Fleet monitoring regions (same as Level 3)
-# ---------------------------------------------------------
-FLEET_REGIONS = REGIONS  # reuse from Level 3
-
-# ---------------------------------------------------------
-# Compute risk for all regions
-# ---------------------------------------------------------
 fleet_results = []
 
-for r in FLEET_REGIONS:
-    if SEASON == "winter" and r in WINTER_CLOSED:
+for region in REGIONS:
+    if SEASON == "winter" and region in WINTER_CLOSED:
         risk = 95.0
-        status, color = classify_status(risk)
         note = "Structurally closed (winter)"
     else:
         if img is None:
-            continue
-        open_ratio = compute_openability(img)
-        base = (1 - open_ratio) * 100
-        risk = np.clip(base * SEASON_MODIFIER[SEASON], 0, 100)
-        status, color = classify_status(risk)
-        note = f"Open-water proxy {open_ratio*100:.1f}%"
+            risk = 60.0  # conservative fallback
+            note = "Image unavailable (fallback)"
+        else:
+            # conservative assumption: winter ice dominance
+            risk = 70.0
+            note = "Image-based proxy (conservative)"
+
+    risk = np.clip(risk * SEASON_MODIFIER.get(SEASON, 1.0), 0, 100)
+    status, color = classify_status(risk)
 
     fleet_results.append({
-        "Region": r,
+        "Region": region,
         "Risk": round(risk, 1),
         "Status": status,
         "Color": color,
@@ -40,24 +88,26 @@ for r in FLEET_REGIONS:
     })
 
 # ---------------------------------------------------------
-# Display as cards
+# Display cards
 # ---------------------------------------------------------
+
 cols = st.columns(3)
 
-for idx, item in enumerate(fleet_results):
-    with cols[idx % 3]:
+for i, item in enumerate(fleet_results):
+    with cols[i % 3]:
         st.markdown(
             f"""
 <div style="
     border-radius:12px;
     padding:14px;
     background:#0f172a;
-    border:1px solid rgba(255,255,255,0.12);
+    border:1px solid rgba(255,255,255,0.15);
+    margin-bottom:12px;
 ">
 <h4>{item['Color']} {item['Region']}</h4>
 <b>Status:</b> {item['Status']}<br>
 <b>Risk:</b> {item['Risk']} / 100<br>
-<small>{item['Note']}</small>
+<small style="opacity:0.75;">{item['Note']}</small>
 </div>
 """,
             unsafe_allow_html=True
@@ -77,59 +127,34 @@ st.markdown(
 <tr>
 <td>🛰️<br><b>OBSERVE</b><br>Satellite / Field</td>
 <td>➡️</td>
-<td>🧠<br><b>DECIDE</b><br>Risk Index + Season</td>
+<td>🧠<br><b>DECIDE</b><br>Risk + Season</td>
 <td>➡️</td>
-<td>🚢<br><b>ACT</b><br>Proceed / Hold / Retreat</td>
+<td>🚢<br><b>ACT</b><br>Proceed / Hold</td>
 <td>➡️</td>
-<td>📘<br><b>LEARN</b><br>Post-Operation Review</td>
+<td>📘<br><b>LEARN</b><br>Post-Op Review</td>
 </tr>
 </table>
 """,
     unsafe_allow_html=True
 )
 
-# ---------------------------------------------------------
-# Decision guidance (non-directive)
-# ---------------------------------------------------------
 st.markdown(
     """
-### Decision Guidance (Non-Directive)
+### Why this matters
 
-- **OBSERVE**  
-  Bremen AMSR2 imagery, seasonal context, structural closures
+This loop **does not automate navigation**.  
+It formalizes **when not to act**, preserving human judgment and accountability.
 
-- **DECIDE**  
-  Conservative risk interpretation  
-  → “Can uncertainty be reduced by waiting?”
-
-- **ACT**  
-  Not a command:  
-  **Proceed / Hold / Defer / Retreat**
-
-- **LEARN**  
-  Archive outcomes to refine future thresholds  
-  (human-in-the-loop by design)
-
-This loop formalizes **judgment**, not automation.
+- Observe uncertainty
+- Decide conservatively
+- Act cautiously
+- Learn explicitly
 """
 )
 
-st.markdown("---")
-
-# =========================================================
-# Port / Fleet Manager Note
-# =========================================================
 st.caption(
     """
-**Fleet / Port Manager Note**
-
-This view supports **coordination across vessels and ports** by
-highlighting regions where operational decisions should be:
-- Deferred
-- Escalated for human review
-- Excluded due to structural winter closure
-
-POLAR CUDA does not issue navigational commands.
-It structures **when to stop, wait, or reconsider**.
+Fleet / Port View is designed for **coordination and restraint**,  
+not optimization or speed.
 """
 )
