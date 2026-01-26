@@ -1,231 +1,135 @@
+# =========================================================
+# POLAR CUDA – Fleet / Port View + Ops Loop
+# =========================================================
+
 import streamlit as st
-import datetime
 import numpy as np
-from PIL import Image
-import requests
-from io import BytesIO
 
-# =========================================================
-# POLAR CUDA – Level 3
-# Season-Aware Operational Risk Proxy
-# =========================================================
-
-st.set_page_config(
-    page_title="POLAR CUDA – Level 3",
-    layout="centered"
-)
+st.markdown("## 🚢 Fleet / Port View – Multi-Region Monitoring")
 
 # ---------------------------------------------------------
-# Date & season detection
+# Fleet monitoring regions (same as Level 3)
 # ---------------------------------------------------------
-today = datetime.date.today()
-month = today.month
-
-if month in [12, 1, 2, 3]:
-    SEASON = "winter"
-elif month in [4, 5]:
-    SEASON = "spring"
-elif month in [6, 7, 8, 9]:
-    SEASON = "summer"
-else:
-    SEASON = "autumn"
+FLEET_REGIONS = REGIONS  # reuse from Level 3
 
 # ---------------------------------------------------------
-# Sea regions (12)
+# Compute risk for all regions
 # ---------------------------------------------------------
-REGIONS = [
-    "Sea of Okhotsk",
-    "Bering Sea",
-    "Chukchi Sea",
-    "East Siberian Sea",
-    "Laptev Sea",
-    "Kara Sea",
-    "Barents Sea",
-    "Beaufort Sea",
-    "Canadian Arctic Archipelago",
-    "Central Arctic Ocean",
-    "Greenland Sea",
-    "Baffin Bay",
-]
+fleet_results = []
 
-# ---------------------------------------------------------
-# Structurally winter-closed seas
-# (Operational reality, not model output)
-# ---------------------------------------------------------
-WINTER_CLOSED = {
-    "Chukchi Sea",
-    "East Siberian Sea",
-    "Laptev Sea",
-    "Beaufort Sea",
-    "Central Arctic Ocean",
-    "Canadian Arctic Archipelago",
-}
+for r in FLEET_REGIONS:
+    if SEASON == "winter" and r in WINTER_CLOSED:
+        risk = 95.0
+        status, color = classify_status(risk)
+        note = "Structurally closed (winter)"
+    else:
+        if img is None:
+            continue
+        open_ratio = compute_openability(img)
+        base = (1 - open_ratio) * 100
+        risk = np.clip(base * SEASON_MODIFIER[SEASON], 0, 100)
+        status, color = classify_status(risk)
+        note = f"Open-water proxy {open_ratio*100:.1f}%"
+
+    fleet_results.append({
+        "Region": r,
+        "Risk": round(risk, 1),
+        "Status": status,
+        "Color": color,
+        "Note": note
+    })
 
 # ---------------------------------------------------------
-# Seasonal risk modifiers
+# Display as cards
 # ---------------------------------------------------------
-SEASON_MODIFIER = {
-    "winter": 1.00,
-    "spring": 0.85,   # leads increase, uncertainty remains
-    "summer": 0.65,   # lowest seasonal risk
-    "autumn": 1.15,   # freeze-up amplification
-}
+cols = st.columns(3)
 
-# ---------------------------------------------------------
-# Bremen AMSR2 PNG (auto-updated daily)
-# ---------------------------------------------------------
-BREMEN_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
-
-@st.cache_data(ttl=3600)
-def load_bremen_png():
-    try:
-        r = requests.get(BREMEN_URL, timeout=10)
-        r.raise_for_status()
-        return Image.open(BytesIO(r.content)).convert("RGB")
-    except Exception:
-        return None
-
-# ---------------------------------------------------------
-# Pixel classification (conservative & explicit)
-# ---------------------------------------------------------
-def classify_pixel(rgb):
-    r, g, b = rgb
-
-    # Land / coast mask (strong green dominance)
-    if g > 170 and g > r * 1.2 and g > b * 1.2:
-        return "land"
-
-    # Open water (deep blue)
-    if b > 120 and b > r * 1.2 and b > g * 1.2:
-        return "water"
-
-    # All remaining colors = sea ice (any concentration)
-    return "ice"
-
-# ---------------------------------------------------------
-# Openability proxy computation
-# (Sampling every 4 pixels for stability)
-# ---------------------------------------------------------
-def compute_openability(img):
-    arr = np.array(img)
-    h, w, _ = arr.shape
-
-    ocean_pixels = 0
-    open_water = 0
-
-    for y in range(0, h, 4):
-        for x in range(0, w, 4):
-            cls = classify_pixel(arr[y, x])
-            if cls == "land":
-                continue
-            ocean_pixels += 1
-            if cls == "water":
-                open_water += 1
-
-    if ocean_pixels == 0:
-        return None
-
-    return open_water / ocean_pixels
-
-# ---------------------------------------------------------
-# Risk status classification
-# ---------------------------------------------------------
-def classify_status(value):
-    if value < 30:
-        return "LOW", "🟢"
-    if value < 50:
-        return "MODERATE", "🟡"
-    if value < 70:
-        return "HIGH", "🟠"
-    return "EXTREME", "🔴"
-
-# =========================================================
-# UI
-# =========================================================
-
-st.title("🧊 POLAR CUDA – Level 3")
-st.caption("Cryospheric Unified Decision Assistant")
-st.caption(f"Date (local): {today}")
-st.caption(f"Season detected: {SEASON.upper()}")
-
-region = st.selectbox("Select Sea Region", REGIONS)
+for idx, item in enumerate(fleet_results):
+    with cols[idx % 3]:
+        st.markdown(
+            f"""
+<div style="
+    border-radius:12px;
+    padding:14px;
+    background:#0f172a;
+    border:1px solid rgba(255,255,255,0.12);
+">
+<h4>{item['Color']} {item['Region']}</h4>
+<b>Status:</b> {item['Status']}<br>
+<b>Risk:</b> {item['Risk']} / 100<br>
+<small>{item['Note']}</small>
+</div>
+""",
+            unsafe_allow_html=True
+        )
 
 st.markdown("---")
 
-# ---------------------------------------------------------
-# Core operational risk logic
-# ---------------------------------------------------------
-if SEASON == "winter" and region in WINTER_CLOSED:
-    base_risk = 95.0
-    assessment_note = (
-        "Structurally winter-closed sea. "
-        "Operational openability is effectively zero regardless of local leads."
-    )
+# =========================================================
+# OPS LOOP VISUALIZATION
+# =========================================================
 
-else:
-    img = load_bremen_png()
-    if img is None:
-        st.error("Unable to load Bremen AMSR2 daily imagery.")
-        st.stop()
-
-    open_ratio = compute_openability(img)
-    if open_ratio is None:
-        st.error("Unable to compute open-water proxy.")
-        st.stop()
-
-    base_risk = (1.0 - open_ratio) * 100.0
-    assessment_note = f"Open-water ratio (image-derived proxy): {open_ratio*100:.1f}%"
-
-# ---------------------------------------------------------
-# Seasonal adjustment
-# ---------------------------------------------------------
-risk_index = round(
-    np.clip(base_risk * SEASON_MODIFIER[SEASON], 0, 100),
-    1
-)
-
-status, color = classify_status(risk_index)
-
-# ---------------------------------------------------------
-# Display
-# ---------------------------------------------------------
-st.subheader("Regional Operational Risk (Season-Aware)")
-
-st.markdown(f"### {color} **{status}**")
-st.markdown(f"**Risk Index:** {risk_index} / 100")
-st.progress(int(risk_index))
+st.markdown("## 🔁 Operational Decision Loop (Ops Loop)")
 
 st.markdown(
-    f"""
-**Operational Interpretation (Non-Directive)**
+    """
+<table style="width:100%; text-align:center;">
+<tr>
+<td>🛰️<br><b>OBSERVE</b><br>Satellite / Field</td>
+<td>➡️</td>
+<td>🧠<br><b>DECIDE</b><br>Risk Index + Season</td>
+<td>➡️</td>
+<td>🚢<br><b>ACT</b><br>Proceed / Hold / Retreat</td>
+<td>➡️</td>
+<td>📘<br><b>LEARN</b><br>Post-Operation Review</td>
+</tr>
+</table>
+""",
+    unsafe_allow_html=True
+)
 
-- Selected Region: **{region}**
-- Season Logic Applied: **{SEASON.upper()}**
-- Assessment Basis: **Bremen AMSR2 image-derived openability proxy**
-- Note: {assessment_note}
+# ---------------------------------------------------------
+# Decision guidance (non-directive)
+# ---------------------------------------------------------
+st.markdown(
+    """
+### Decision Guidance (Non-Directive)
 
-This indicator reflects **relative operational risk**,  
-not route availability or navigability.
+- **OBSERVE**  
+  Bremen AMSR2 imagery, seasonal context, structural closures
 
-Seasonal dynamics and structural winter constraints are
-explicitly incorporated.
+- **DECIDE**  
+  Conservative risk interpretation  
+  → “Can uncertainty be reduced by waiting?”
 
-Final operational decisions remain with operators
-and vessel masters.
+- **ACT**  
+  Not a command:  
+  **Proceed / Hold / Defer / Retreat**
+
+- **LEARN**  
+  Archive outcomes to refine future thresholds  
+  (human-in-the-loop by design)
+
+This loop formalizes **judgment**, not automation.
 """
 )
 
 st.markdown("---")
+
+# =========================================================
+# Port / Fleet Manager Note
+# =========================================================
 st.caption(
     """
-**Data Source & Legal Notice**
+**Fleet / Port Manager Note**
 
-Level 3 (Experimental): Derived from the publicly accessible
-**Bremen AMSR2 daily sea-ice concentration PNG** by conservative
-image-based classification.
+This view supports **coordination across vessels and ports** by
+highlighting regions where operational decisions should be:
+- Deferred
+- Escalated for human review
+- Excluded due to structural winter closure
 
-This application provides **situational awareness only** and does not
-replace official ice services, onboard navigation systems,
-or the judgment of vessel masters.
+POLAR CUDA does not issue navigational commands.
+It structures **when to stop, wait, or reconsider**.
 """
 )
