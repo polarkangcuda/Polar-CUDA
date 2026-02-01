@@ -5,11 +5,10 @@ from PIL import Image
 from io import BytesIO
 import datetime
 import pandas as pd
-import plotly.graph_objects as go
 
 # =========================================================
 # POLAR CUDA
-# Sea Ice Situational Awareness Gauge
+# Sea Ice Situational Awareness Gauge (NO PLOTLY)
 #
 # Designed for decision awareness, not decision-making.
 # Not a navigation or routing tool.
@@ -125,70 +124,75 @@ def compute_hybrid_ice(arr, region, roi, correction, step=4):
     raw = compute_raw_ice(arr, roi, step)
     if raw is None:
         return None, None
-
     alpha = correction.get(region, 1.0)
     hybrid = clamp_0_100(raw * alpha)
-
     return round(raw, 1), round(hybrid, 1)
 
 # ---------------------------------------------------------
-# Fear & Greed–style situational gauge
-# (Operational Friction – NOT navigability)
+# Fear & Greed style mapping
+# NOTE: We avoid "navigable / not navigable"
+# Use "Operational Friction" language
 # ---------------------------------------------------------
-def friction_label(ice_pct, t1, t2, t3, t4):
+def friction_level(ice_pct, t1, t2, t3, t4):
     if ice_pct <= t1:
-        return "🟢 Extreme Open"
+        return "🟢 Extreme Open", "Very low friction"
     if ice_pct <= t2:
-        return "🟩 Open"
+        return "🟩 Open", "Low friction"
     if ice_pct <= t3:
-        return "🟡 Neutral"
+        return "🟡 Neutral", "Moderate friction"
     if ice_pct <= t4:
-        return "🟠 Constrained"
-    return "🔴 Extreme Constrained"
+        return "🟠 Constrained", "High friction"
+    return "🔴 Extreme Constrained", "Very high friction"
 
-def make_gauge(title, value):
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=value,
-        number={"suffix": "%"},
-        title={"text": title},
-        gauge={"axis": {"range": [0, 100]}}
-    ))
-    fig.update_layout(height=220, margin=dict(l=20, r=20, t=50, b=10))
-    return fig
+def friction_color_band(ice_pct, t1, t2, t3, t4):
+    # For a simple color hint in text only (no external libs)
+    if ice_pct <= t1:
+        return "green"
+    if ice_pct <= t2:
+        return "green"
+    if ice_pct <= t3:
+        return "orange"
+    if ice_pct <= t4:
+        return "orange"
+    return "red"
 
 # =========================================================
 # UI
 # =========================================================
 
 st.title("🧊 POLAR CUDA – Sea Ice Situational Awareness Gauge")
-st.caption("Fear & Greed–style situational index for Arctic sea-ice conditions")
+st.caption("Fear & Greed–style situational gauge (awareness-only, not operational advice)")
 
 with st.expander("⚠️ Mandatory disclaimer (read before use)", expanded=True):
     st.markdown(
         """
 **This tool provides situational awareness only.**
 
-- NOT a navigation, routing, or feasibility tool  
+- NOT a navigation / routing / feasibility product  
 - NOT an official ice chart or ice service  
 - NOT legal, safety, or operational advice  
 
-All operational and legal responsibility remains with the user.
+All operational and legal responsibility remains with the user/operator.  
+Use official ice services, ice charts, and professional judgement for operations.
 """
     )
 
-ack = st.checkbox("I understand and accept the above.", value=False)
+ack = st.checkbox("I understand and accept the above. Show outputs.", value=False)
 if not ack:
     st.stop()
 
-st.write(f"**Analysis date:** {datetime.date.today()}")
+today = datetime.date.today()
+st.write(f"**Analysis date:** {today}")
 
-# ---------------------------------------------------------
+# Refresh
+if st.button("🔄 Refresh (clear cache)"):
+    st.cache_data.clear()
+    st.rerun()
+
 # Settings
-# ---------------------------------------------------------
 step = st.slider("Sampling step (speed vs detail)", 2, 12, 4, 1)
 
-st.subheader("Gauge thresholds (Fear & Greed style)")
+st.subheader("Gauge thresholds (tunable)")
 t1 = st.slider("Extreme Open ≤", 0, 40, 15)
 t2 = st.slider("Open ≤", 10, 60, 35)
 t3 = st.slider("Neutral ≤", 20, 80, 60)
@@ -198,9 +202,7 @@ if not (t1 < t2 < t3 < t4):
     st.error("Thresholds must satisfy: Extreme Open < Open < Neutral < Constrained")
     st.stop()
 
-# ---------------------------------------------------------
-# Correction factor selection (FIXED – no syntax error)
-# ---------------------------------------------------------
+# Correction factors
 st.subheader("Hybrid calibration (regional correction α)")
 use_custom_alpha = st.checkbox(
     "Manually adjust correction factors (advanced users)",
@@ -221,9 +223,7 @@ if use_custom_alpha:
 else:
     correction = DEFAULT_CORRECTION.copy()
 
-# ---------------------------------------------------------
 # Compute
-# ---------------------------------------------------------
 arr = load_image()
 
 rows = []
@@ -232,54 +232,76 @@ hybrid_values = []
 for region, roi in REGIONS.items():
     raw, hybrid = compute_hybrid_ice(arr, region, roi, correction, step)
     if hybrid is None:
+        rows.append({
+            "Region": region,
+            "Raw (%)": "N/A",
+            "Hybrid Ice Area (%)": "N/A",
+            "Gauge": "⚪ No data",
+            "Note": ""
+        })
         continue
 
-    label = friction_label(hybrid, t1, t2, t3, t4)
+    lvl, note = friction_level(hybrid, t1, t2, t3, t4)
     rows.append({
         "Region": region,
         "Raw (%)": raw,
         "Hybrid Ice Area (%)": hybrid,
-        "Gauge": label
+        "Gauge": lvl,
+        "Note": note
     })
     hybrid_values.append(hybrid)
 
 df = pd.DataFrame(rows)
 
-# ---------------------------------------------------------
 # Overall gauge
-# ---------------------------------------------------------
 st.markdown("---")
+st.subheader("Overall situational gauge (average across regions)")
+
 if hybrid_values:
     overall = round(sum(hybrid_values) / len(hybrid_values), 1)
-    st.metric("POLAR CUDA – Overall", f"{overall}%")
-    st.write(f"Overall gauge: **{friction_label(overall, t1, t2, t3, t4)}**")
-    st.plotly_chart(make_gauge("Overall Hybrid Ice Area", overall), use_container_width=True)
+    overall_lvl, overall_note = friction_level(overall, t1, t2, t3, t4)
 
-# ---------------------------------------------------------
-# Regional output
-# ---------------------------------------------------------
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.metric("Overall (Hybrid %)", f"{overall}%")
+    with col2:
+        st.write(f"**Overall gauge:** {overall_lvl}  — {overall_note}")
+
+    # Simple gauge visualization without plotly
+    st.progress(int(overall))  # 0..100
+    st.caption("Progress bar is a visual proxy of Hybrid Ice Area (%).")
+else:
+    st.warning("No valid data returned today.")
+
+# Region list
 st.markdown("---")
 st.subheader("Sea-region situational gauges")
 
 for _, r in df.iterrows():
-    st.write(
-        f"**{r['Region']}** → {r['Gauge']}  |  "
-        f"Hybrid: {r['Hybrid Ice Area (%)']}% (raw {r['Raw (%)']}%)"
-    )
+    if isinstance(r["Hybrid Ice Area (%)"], (int, float, np.floating)):
+        val = float(r["Hybrid Ice Area (%)"])
+        st.write(
+            f"**{r['Region']}** → {r['Gauge']}  |  "
+            f"Hybrid: {r['Hybrid Ice Area (%)']}% (raw {r['Raw (%)']}%)  |  {r['Note']}"
+        )
+        st.progress(int(val))
+    else:
+        st.write(f"**{r['Region']}** → {r['Gauge']}")
 
-# ---------------------------------------------------------
-# Download
-# ---------------------------------------------------------
+# Table + download
 st.markdown("---")
+st.subheader("Table (downloadable)")
+st.dataframe(df, use_container_width=True)
+
 csv = df.to_csv(index=False).encode("utf-8-sig")
 st.download_button(
     "⬇️ Download today’s table (CSV)",
     data=csv,
-    file_name=f"polar_cuda_{datetime.date.today()}.csv",
+    file_name=f"polar_cuda_{today}.csv",
     mime="text/csv"
 )
 
 st.caption(
     "Data source: University of Bremen AMSR2 daily PNG. "
-    "POLAR CUDA provides situational awareness only."
+    "POLAR CUDA provides situational awareness only (not operational advice)."
 )
