@@ -8,21 +8,25 @@ import pandas as pd
 
 # =========================================================
 # POLAR CUDA (Cryospheric Uncertainty & Decision Awareness)
-# Ice Area Awareness Index
+# Human-eye based Ice Area Index
 #
-# "Designed for decision awareness, not decision-making."
+# “This index is designed for decision awareness,
+#  not decision-making.”
 # =========================================================
 
 st.set_page_config(
-    page_title="POLAR CUDA – Ice Area Index",
+    page_title="POLAR CUDA – Ice Area Index (Human-eye)",
     layout="centered"
 )
 
+# ---------------------------------------------------------
+# Data source (visual PNG – human-eye reference)
+# ---------------------------------------------------------
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
-CACHE_TTL = 3600
+CACHE_TTL = 3600  # seconds
 
 # ---------------------------------------------------------
-# Fixed ROIs (white boxes defined by user)
+# User-defined sea regions (white boxes)
 # ---------------------------------------------------------
 REGIONS = {
     "Sea of Okhotsk": (620, 90, 900, 330),
@@ -40,7 +44,7 @@ REGIONS = {
 }
 
 # ---------------------------------------------------------
-# Load image
+# Load image safely
 # ---------------------------------------------------------
 @st.cache_data(ttl=CACHE_TTL)
 def load_image():
@@ -49,47 +53,50 @@ def load_image():
     return np.array(Image.open(BytesIO(r.content)).convert("RGB"))
 
 # ---------------------------------------------------------
-# Human-eye-based pixel classification
+# Human-eye pixel classification
 # ---------------------------------------------------------
-def is_land(rgb):
+def classify_pixel_human_eye(rgb):
     r, g, b = rgb
-    return g > 150 and g > r * 1.1 and g > b * 1.1
 
-def is_ocean(rgb):
-    r, g, b = rgb
-    return b > 120 and b > r * 1.2 and b > g * 1.2
+    # Land: green-dominant
+    if g > 150 and g > r * 1.1 and g > b * 1.1:
+        return "land"
+
+    # Ocean: blue-dominant
+    if b > 120 and b > r * 1.1 and b > g * 1.1:
+        return "ocean"
+
+    # Everything else looks like ice to human eyes
+    return "ice"
 
 # ---------------------------------------------------------
-# Ice area ratio (what the eye sees)
+# Ice area index (human-eye based)
 # ---------------------------------------------------------
 def compute_ice_area_index(arr, roi, step=3):
     x1, y1, x2, y2 = roi
-    ice_pixels = 0
-    valid_pixels = 0
-
     h, w, _ = arr.shape
-    x1, x2 = max(0, x1), min(w - 1, x2)
-    y1, y2 = max(0, y1), min(h - 1, y2)
+
+    x1, x2 = max(0, x1), min(w, x2)
+    y1, y2 = max(0, y1), min(h, y2)
+
+    ice = valid = 0
 
     for y in range(y1, y2, step):
         for x in range(x1, x2, step):
-            rgb = arr[y, x]
-
-            if is_land(rgb):
+            c = classify_pixel_human_eye(arr[y, x])
+            if c in ["land", "ocean"]:
                 continue
+            valid += 1
+            if c == "ice":
+                ice += 1
 
-            valid_pixels += 1
-
-            if not is_ocean(rgb):
-                ice_pixels += 1
-
-    if valid_pixels == 0:
+    if valid == 0:
         return None
 
-    return round((ice_pixels / valid_pixels) * 100, 1)
+    return round((ice / valid) * 100, 1)
 
 # ---------------------------------------------------------
-# Simple labels
+# Simple label
 # ---------------------------------------------------------
 def label(idx):
     if idx >= 80:
@@ -104,13 +111,14 @@ def label(idx):
 # UI
 # =========================================================
 
-st.title("🧊 POLAR CUDA – Ice Area Index")
-st.caption(
-    "POLAR CUDA (Cryospheric Uncertainty & Decision Awareness)\n"
-    "This index is designed for decision awareness, not decision-making."
+st.title("🧊 POLAR CUDA – Ice Area Index (Human-eye based)")
+st.markdown(
+    "**POLAR CUDA (Cryospheric Uncertainty & Decision Awareness)**  \n"
+    "*This index reflects visually dominant ice-covered area only.*"
 )
 
-st.write(f"**Analysis date:** {datetime.date.today()}")
+today = datetime.date.today()
+st.write(f"**Analysis date:** {today}")
 
 if st.button("🔄 Refresh"):
     st.cache_data.clear()
@@ -130,6 +138,12 @@ for region, roi in REGIONS.items():
             "Index": idx,
             "Status": label(idx)
         })
+    else:
+        results.append({
+            "Region": region,
+            "Index": "N/A",
+            "Status": "⚪ No data"
+        })
 
 df = pd.DataFrame(results)
 
@@ -146,11 +160,13 @@ for _, r in df.iterrows():
 st.markdown("---")
 st.caption(
     """
-**Data source**: University of Bremen AMSR2 daily sea-ice concentration PNG.
+**Data source**: University of Bremen AMSR2 daily visual PNG.
 
-This index counts **visible ice-covered area only**, exactly as perceived by the human eye.
-It does not interpret concentration values or physical thickness.
+This index represents **visually perceived ice-covered area only**,
+based on simple human-eye classification within user-defined regions.
 
-⚠ This tool provides situational awareness only and does not replace official ice services.
+⚠ This tool is for **decision awareness only**.
+It does **not** represent physical ice concentration,
+navigability, or operational guidance.
 """
 )
