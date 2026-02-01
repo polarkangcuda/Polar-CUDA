@@ -9,11 +9,11 @@ import pandas as pd
 # =========================================================
 # POLAR CUDA (Cryospheric Uncertainty & Decision Awareness)
 #
-# “This index is designed for decision awareness,
-#  not decision-making.”
-#
 # Human-vision–aligned daily situational awareness index
 # for Arctic sea-ice conditions.
+#
+# This index is designed for decision awareness,
+# not decision-making.
 # =========================================================
 
 st.set_page_config(
@@ -22,14 +22,13 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# Data source
+# Data source (daily updated)
 # ---------------------------------------------------------
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 CACHE_TTL = 3600  # seconds
 
 # ---------------------------------------------------------
 # Expert-defined fixed ROIs (pixel coordinates)
-# (mentally corresponding to 1–12 Arctic sea regions)
 # ---------------------------------------------------------
 REGIONS = {
     "Sea of Okhotsk": (620, 90, 900, 330),
@@ -47,7 +46,7 @@ REGIONS = {
 }
 
 # ---------------------------------------------------------
-# Load AMSR2 image (safe & cached)
+# Load AMSR2 image (cached & safe)
 # ---------------------------------------------------------
 @st.cache_data(ttl=CACHE_TTL)
 def load_image_safe():
@@ -57,12 +56,12 @@ def load_image_safe():
     return np.array(img)
 
 # ---------------------------------------------------------
-# Pixel classifier (human-vision aligned)
+# Pixel classifier (KEY FIX)
 #
-# Rules:
-#  - Bright green  → land (exclude)
-#  - Deep blue     → open water (exclude)
-#  - Any other color → ice (regardless of concentration)
+# Visual logic:
+#  - Bright green            → land
+#  - Any blue-dominant color → water
+#  - Everything else         → ice
 # ---------------------------------------------------------
 def classify_pixel(rgb):
     r, g, b = rgb
@@ -71,27 +70,22 @@ def classify_pixel(rgb):
     if g > 160 and g > r * 1.15 and g > b * 1.15:
         return "land"
 
-    # OPEN WATER (deep blue)
-    if b > 140 and b > r * 1.2 and b > g * 1.2:
-        return "open_water"
+    # WATER (all blue-dominant tones: dark, light, cyan)
+    if b > r and b > g:
+        return "water"
 
-    # Everything else = ICE (visual interpretation)
+    # ICE (pink / purple / yellow / red / white tones)
     return "ice"
 
 # ---------------------------------------------------------
-# Ice area percentage (visual-rule based)
+# Ice area percentage (human-vision aligned)
 #
-# Denominator:
-#   pixels where ice could exist
-#   (land + deep-blue open water excluded)
-#
-# Numerator:
-#   pixels visually interpreted as ice
+# denominator = ice + water (land excluded)
+# numerator   = ice
 # ---------------------------------------------------------
 def compute_ice_area_percent(arr, roi, step=4):
     x1, y1, x2, y2 = roi
-    ice_pixels = 0
-    ice_possible = 0
+    ice = water = 0
 
     h, w, _ = arr.shape
     x1, x2 = max(0, x1), min(w - 1, x2)
@@ -103,20 +97,18 @@ def compute_ice_area_percent(arr, roi, step=4):
 
             if c == "land":
                 continue
-            if c == "open_water":
-                continue
+            elif c == "ice":
+                ice += 1
+            else:
+                water += 1
 
-            ice_possible += 1
-            if c == "ice":
-                ice_pixels += 1
-
-    if ice_possible == 0:
+    if ice + water == 0:
         return None
 
-    return round((ice_pixels / ice_possible) * 100, 1)
+    return round((ice / (ice + water)) * 100, 1)
 
 # ---------------------------------------------------------
-# Index label (simple, intuitive)
+# Index label (intuitive, non-operational)
 # ---------------------------------------------------------
 def label(idx):
     if idx >= 90:
@@ -141,7 +133,7 @@ today = datetime.date.today()
 st.caption("Daily situational awareness for Arctic sea-ice conditions.")
 st.write(f"**Analysis date:** {today}")
 
-# Refresh
+# Refresh button
 if st.button("🔄 Refresh"):
     st.cache_data.clear()
     st.rerun()
