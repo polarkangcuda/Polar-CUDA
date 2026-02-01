@@ -1,95 +1,158 @@
 import streamlit as st
-import numpy as np
-from PIL import Image, ImageDraw
-import requests
-from io import BytesIO
 import datetime
+import requests
+from PIL import Image
+from io import BytesIO
 
 # =========================================================
 # POLAR CUDA – Level 3
-# Reference-ROI Locked Sea-Region Viewer
+# Stable Sea-Region Situation Viewer
 # =========================================================
 
 st.set_page_config(
-    page_title="POLAR CUDA – Level 3 (Reference ROI)",
+    page_title="POLAR CUDA – Level 3",
     layout="wide"
 )
 
+# ---------------------------------------------------------
+# Date
+# ---------------------------------------------------------
 today = datetime.date.today()
 
 # ---------------------------------------------------------
-# Load reference image (USER-DEFINED, FIXED)
+# URLs (NO local files)
 # ---------------------------------------------------------
-@st.cache_data
-def load_reference_image():
-    return Image.open("reference_roi.png").convert("RGB")
+# 1) Reference image with expert-defined yellow ROIs
+REFERENCE_ROI_IMAGE_URL = (
+    "https://raw.githubusercontent.com/USERNAME/REPO/main/reference_roi.png"
+)
+
+# 2) Bremen AMSR2 daily sea-ice PNG (auto-updated)
+BREMEN_AMSR2_URL = (
+    "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
+)
 
 # ---------------------------------------------------------
-# Load daily Bremen image (analysis only)
+# Image loaders (NO caching to avoid freeze)
 # ---------------------------------------------------------
-BREMEN_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
+def load_image_from_url(url, label):
+    try:
+        r = requests.get(url, timeout=15)
+        r.raise_for_status()
+        return Image.open(BytesIO(r.content)).convert("RGB")
+    except Exception:
+        st.error(f"❌ Failed to load {label}.")
+        st.stop()
 
-@st.cache_data(ttl=3600)
-def load_bremen_png():
-    r = requests.get(BREMEN_URL, timeout=15)
-    r.raise_for_status()
-    return Image.open(BytesIO(r.content)).convert("RGB")
-
-# ---------------------------------------------------------
-# Pixel classifier
-# ---------------------------------------------------------
-def classify_pixel(rgb):
-    r, g, b = rgb
-    if g > 170 and g > r * 1.2 and g > b * 1.2:
-        return "land"
-    if b > 120 and b > r * 1.2 and b > g * 1.2:
-        return "water"
-    return "ice"
-
-# ---------------------------------------------------------
-# USER-DEFINED ROIs (FROM REFERENCE IMAGE)
-# Example values – 반드시 reference 이미지에서 추출한 값 사용
-# ---------------------------------------------------------
-REGION_ROIS = {
-    "1. Sea of Okhotsk": (610, 150, 900, 360),
-    "2. Bering Sea": (450, 300, 720, 520),
-    "3. Chukchi Sea": (650, 420, 860, 610),
-    "4. East Siberian Sea": (780, 420, 1000, 610),
-    "5. Laptev Sea": (930, 420, 1160, 610),
-    "6. Kara Sea": (1120, 460, 1320, 660),
-    "7. Barents Sea": (1160, 650, 1420, 900),
-    "8. Beaufort Sea": (680, 560, 900, 760),
-    "9. Canadian Arctic Archipelago": (640, 700, 860, 900),
-    "10. Central Arctic Ocean": (820, 540, 1080, 780),
-    "11. Greenland Sea": (980, 760, 1240, 1000),
-    "12. Baffin Bay": (700, 820, 920, 1040),
-}
-
-# ---------------------------------------------------------
+# =========================================================
 # UI
-# ---------------------------------------------------------
+# =========================================================
+
 st.title("🧊 POLAR CUDA – Level 3")
-st.caption("Reference-ROI Locked Sea-Region Situation Viewer")
-st.caption(f"Analysis date: {today}")
+st.caption("Sea-Region Situation Viewer (Stable Expert-Defined Model)")
+st.caption(f"Analysis date: **{today}**")
 
 st.markdown("---")
 
-ref_img = load_reference_image()
-st.image(ref_img, caption="Reference Sea-Region Definition (User-Defined)", use_container_width=False)
+# ---------------------------------------------------------
+# Reference region definition (expert judgement)
+# ---------------------------------------------------------
+st.subheader("① Reference Sea-Region Definition (Fixed)")
 
-st.markdown("## Why this works")
-st.markdown("""
-- Sea regions are **defined once by a domain expert**
-- Daily Bremen imagery is used **only for pixel statistics**
-- ROIs never move, rescale, or drift
-- Interpretation remains stable across seasons and years
-""")
+st.markdown(
+    """
+This reference image defines **12 Arctic sea regions** using
+**expert judgement**.  
+These yellow boxes are **fixed, non-authoritative operational sectors**
+and **do not change over time**.
+"""
+)
+
+ref_img = load_image_from_url(
+    REFERENCE_ROI_IMAGE_URL,
+    "Reference ROI image"
+)
+
+st.image(
+    ref_img,
+    caption="Expert-defined Arctic sea regions (fixed reference)",
+    use_container_width=True
+)
 
 st.markdown("---")
-st.caption("""
-This system intentionally separates:
-(1) **Expert-defined spatial judgment**
-(2) **Daily satellite-derived situational data**
 
-This avoids false precision and preserves scientific accountability.
-""")
+# ---------------------------------------------------------
+# Daily sea-ice situation (Bremen AMSR2)
+# ---------------------------------------------------------
+st.subheader("② Daily Sea-Ice Situation (Bremen AMSR2)")
+
+st.markdown(
+    """
+This image shows the **daily AMSR2 sea-ice concentration** provided by
+the University of Bremen.  
+It is **automatically updated** and reflects **current conditions**.
+"""
+)
+
+bremen_img = load_image_from_url(
+    BREMEN_AMSR2_URL,
+    "Bremen AMSR2 daily sea-ice image"
+)
+
+st.image(
+    bremen_img,
+    caption="Bremen AMSR2 Arctic Sea-Ice Concentration (daily PNG)",
+    use_container_width=True
+)
+
+st.markdown("---")
+
+# ---------------------------------------------------------
+# Interpretation guidance (NO automation)
+# ---------------------------------------------------------
+st.subheader("③ How to Read This View")
+
+st.markdown(
+    """
+**How this Level-3 view should be used**
+
+- Yellow boxes = **fixed sea regions** (defined once by experts)
+- Color map = **today’s observed ice concentration**
+- Interpretation is **comparative and contextual**, not algorithmic
+
+**What this view intentionally does NOT do**
+
+- ❌ No automatic route availability
+- ❌ No pixel-level legal classification
+- ❌ No navigational instruction
+- ❌ No false precision from reprojection
+
+This design ensures:
+**stability · transparency · explainability**
+"""
+)
+
+st.markdown("---")
+
+# ---------------------------------------------------------
+# Legal & methodological notice
+# ---------------------------------------------------------
+st.caption(
+    f"""
+**Data Source & Legal Notice**
+
+Sea-ice imagery is obtained from the publicly accessible AMSR2 daily
+sea-ice concentration product provided by the University of Bremen:
+https://data.seaice.uni-bremen.de/amsr2/
+
+The reference sea-region boundaries are **expert-defined operational
+constructs** and do **not** represent official, legal, or navigational
+boundaries.
+
+This application provides **situational awareness only** and must not
+replace official ice services, navigational charts, or the judgement of
+vessel masters.
+
+Image reference date: **{today}** (based on daily Bremen update).
+"""
+)
