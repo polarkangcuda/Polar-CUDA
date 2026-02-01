@@ -7,8 +7,8 @@ import datetime
 import pandas as pd
 
 # =========================================================
-# POLAR CUDA (Cryospheric Unified Decision Assistant)
-# Ice Risk Index
+# POLAR CUDA – Ice Risk Index
+# Daily Arctic sea-ice awareness indicator (non-directive)
 # =========================================================
 
 st.set_page_config(
@@ -21,6 +21,7 @@ CACHE_TTL = 3600  # seconds
 
 # ---------------------------------------------------------
 # Expert-defined fixed ROIs (pixel coordinates)
+# (Operational constructs – non-authoritative)
 # ---------------------------------------------------------
 REGIONS = {
     "Sea of Okhotsk": (620, 90, 900, 330),
@@ -38,7 +39,7 @@ REGIONS = {
 }
 
 # ---------------------------------------------------------
-# Load daily AMSR2 image
+# Load daily AMSR2 image (cached)
 # ---------------------------------------------------------
 @st.cache_data(ttl=CACHE_TTL)
 def load_image():
@@ -46,17 +47,30 @@ def load_image():
     r.raise_for_status()
     return np.array(Image.open(BytesIO(r.content)).convert("RGB"))
 
+# ---------------------------------------------------------
+# Pixel classification (robust & conservative)
+# ---------------------------------------------------------
 def classify_pixel(rgb):
     r, g, b = rgb
+    # Land (bright green)
     if g > 160 and g > r * 1.1 and g > b * 1.1:
         return "land"
+    # Open water (dark blue)
     if b > 120 and b > r * 1.1 and b > g * 1.1:
         return "water"
+    # All other colors = ice (any concentration)
     return "ice"
 
+# ---------------------------------------------------------
+# Compute Ice Risk Index (0–100)
+# ---------------------------------------------------------
 def compute_index(arr, roi, step=3):
     x1, y1, x2, y2 = roi
     ice = water = ocean = 0
+
+    h, w, _ = arr.shape
+    x2 = min(x2, w)
+    y2 = min(y2, h)
 
     for y in range(y1, y2, step):
         for x in range(x1, x2, step):
@@ -72,9 +86,11 @@ def compute_index(arr, roi, step=3):
     if ocean == 0:
         return None
 
-    ice_ratio = ice / ocean
-    return round(ice_ratio * 100, 1)
+    return round((ice / ocean) * 100, 1)
 
+# ---------------------------------------------------------
+# Human-readable label (Fear / Greed style)
+# ---------------------------------------------------------
 def label(idx):
     if idx >= 80:
         return "🔴 Ice-dominant"
@@ -94,10 +110,16 @@ st.caption("Daily Arctic sea-ice awareness index (non-directive)")
 today = datetime.date.today()
 st.write(f"**Analysis date:** {today}")
 
+# ---------------------------------------------------------
+# Refresh (safe for modern Streamlit)
+# ---------------------------------------------------------
 if st.button("🔄 Refresh"):
     st.cache_data.clear()
-    st.experimental_rerun()
+    st.info("Latest available AMSR2 image reloaded.")
 
+# ---------------------------------------------------------
+# Core computation
+# ---------------------------------------------------------
 arr = load_image()
 
 results = []
@@ -121,7 +143,9 @@ for region, roi in REGIONS.items():
 
 df = pd.DataFrame(results)
 
+# ---------------------------------------------------------
 # Overall Polar CUDA Index
+# ---------------------------------------------------------
 if indices:
     overall = round(sum(indices) / len(indices), 1)
     st.metric("Polar CUDA Index (overall)", f"{overall} / 100")
@@ -137,11 +161,10 @@ st.caption(
     """
 **Data source**: University of Bremen AMSR2 daily sea-ice concentration PNG.
 
-This index is derived from image-based ice dominance within expert-defined
-operational sea regions.
+Sea regions are **expert-defined operational sectors** (non-authoritative).
+This index reflects **relative ice dominance**, not navigability.
 
-This tool provides **situational awareness only**.
-It does **not** indicate navigability, routing feasibility,
-or replace official ice services or operational decision systems.
+This tool provides **situational awareness only** and must not replace
+official ice services, navigational products, or operational decision systems.
 """
 )
