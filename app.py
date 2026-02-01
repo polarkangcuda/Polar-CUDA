@@ -4,10 +4,11 @@ import numpy as np
 from PIL import Image, ImageDraw
 import requests
 from io import BytesIO
+import os
 
 # =========================================================
 # POLAR CUDA – Level 3
-# Sea-Region Situation Viewer (Stable ROI Reference Model)
+# Sea-Region Situation Viewer (Fail-Safe ROI Model)
 # =========================================================
 
 st.set_page_config(
@@ -27,14 +28,7 @@ REFERENCE_IMAGE_PATH = "reference_roi.png"
 BREMEN_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 
 # ---------------------------------------------------------
-# Load reference ROI image (user-approved)
-# ---------------------------------------------------------
-@st.cache_data
-def load_reference_image():
-    return Image.open(REFERENCE_IMAGE_PATH).convert("RGB")
-
-# ---------------------------------------------------------
-# Load daily Bremen AMSR2 PNG
+# Load Bremen AMSR2 image
 # ---------------------------------------------------------
 @st.cache_data(ttl=3600)
 def load_bremen_png():
@@ -43,30 +37,31 @@ def load_bremen_png():
     return Image.open(BytesIO(r.content)).convert("RGB")
 
 # ---------------------------------------------------------
-# Align Bremen image to reference image size
+# Load reference image (fail-safe)
 # ---------------------------------------------------------
-def align_to_reference(bremen_img, ref_img):
-    return bremen_img.resize(ref_img.size, Image.BILINEAR)
+def load_reference_image_or_fallback(bremen_img):
+    if os.path.exists(REFERENCE_IMAGE_PATH):
+        ref = Image.open(REFERENCE_IMAGE_PATH).convert("RGB")
+        source = "User-provided fixed reference image"
+    else:
+        ref = bremen_img.copy()
+        source = "Daily Bremen image (automatic fallback reference)"
+    return ref, source
 
 # ---------------------------------------------------------
-# Pixel classification (robust & conservative)
+# Pixel classification
 # ---------------------------------------------------------
 def classify_pixel(rgb):
     r, g, b = rgb
 
-    # Land: bright green (Bremen land mask)
     if g > 170 and g > r * 1.2 and g > b * 1.2:
         return "land"
-
-    # Open water: dark blue
     if b > 120 and b > r * 1.2 and b > g * 1.2:
         return "water"
-
-    # All remaining colors = sea ice
     return "ice"
 
 # ---------------------------------------------------------
-# Fixed ROIs (pixel coordinates on reference image)
+# Fixed ROIs (pixel coordinates)
 # ---------------------------------------------------------
 REGION_ROIS = {
     "1. Sea of Okhotsk": (620, 110, 910, 330),
@@ -112,11 +107,11 @@ def assess_region(img, roi):
     if ice_ratio > 0.8:
         status = "🔴 ICE DOMINANT (Practically Closed)"
     elif ice_ratio > 0.5:
-        status = "🟠 ICE HEAVY (High Operational Risk)"
+        status = "🟠 ICE HEAVY (High Risk)"
     elif ice_ratio > 0.2:
         status = "🟡 MIXED (Conditional)"
     else:
-        status = "🟢 WATER DOMINANT (Relatively Open)"
+        status = "🟢 WATER DOMINANT"
 
     return status, ice_ratio, water_ratio
 
@@ -125,63 +120,60 @@ def assess_region(img, roi):
 # =========================================================
 
 st.title("🧊 POLAR CUDA – Level 3")
-st.caption("Sea-Region Situation Viewer (Stable ROI Reference Model)")
+st.caption("Sea-Region Situation Viewer (Fail-Safe Reference Model)")
 st.caption(f"Analysis date: **{today}** (Bremen AMSR2 daily PNG)")
 
 st.markdown("---")
 
-# Load images
-ref_img = load_reference_image()
 bremen_img = load_bremen_png()
-aligned_img = align_to_reference(bremen_img, ref_img)
+ref_img, ref_source = load_reference_image_or_fallback(bremen_img)
 
-# ---------------------------------------------------------
-# Draw ROI boxes on aligned image
-# ---------------------------------------------------------
+# Align daily image to reference
+aligned_img = bremen_img.resize(ref_img.size, Image.BILINEAR)
+
+# Draw ROIs
 overlay = aligned_img.copy()
 draw = ImageDraw.Draw(overlay)
-
 for roi in REGION_ROIS.values():
     draw.rectangle(roi, outline="yellow", width=3)
 
 st.image(
     overlay,
-    caption="Bremen AMSR2 Arctic Sea Ice (Daily) aligned to reference ROI",
+    caption=f"Reference-aligned AMSR2 image | Reference source: {ref_source}",
     use_container_width=True
 )
 
 # ---------------------------------------------------------
-# Regional assessment table
+# Regional table
 # ---------------------------------------------------------
 st.markdown("## Regional Sea Ice Situation")
 
 cols = st.columns(3)
 
-for idx, (region, roi) in enumerate(REGION_ROIS.items()):
-    with cols[idx % 3]:
+for i, (region, roi) in enumerate(REGION_ROIS.items()):
+    with cols[i % 3]:
         status, ice_r, water_r = assess_region(aligned_img, roi)
         st.markdown(f"### {region}")
         st.markdown(f"**Status:** {status}")
-        st.markdown(f"- Ice-dominant: {ice_r*100:.1f}%")
+        st.markdown(f"- Ice: {ice_r*100:.1f}%")
         st.markdown(f"- Open water: {water_r*100:.1f}%")
 
 # ---------------------------------------------------------
-# Legal & methodological notice
+# Legal notice
 # ---------------------------------------------------------
 st.markdown("---")
 st.caption(
-    f"""
+    """
 **Data Source & Legal Notice**
 
 Sea-ice information is derived from the publicly available daily AMSR2
 sea-ice concentration imagery provided by the University of Bremen:
 https://data.seaice.uni-bremen.de/amsr2/
 
-Regional boxes shown here are **user-defined operational ROIs**
-anchored to a fixed reference image for consistency.
-They are **not official, legal, or navigational sea boundaries**.
+Regional boxes are **user-defined operational ROIs** for situational awareness.
+They are not official navigational or legal boundaries.
 
-This tool provides situational awareness only and must not replace
-official ice services, navigational charts, or vessel master judgment.
+This tool supports analysis and discussion only and must not replace
+official ice services or operational decision authority.
 """
 )
