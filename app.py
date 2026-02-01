@@ -1,98 +1,104 @@
 import streamlit as st
 import datetime
-import requests
+import numpy as np
 from PIL import Image
+import requests
 from io import BytesIO
 
 # =========================================================
 # POLAR CUDA – Level 3
-# Stable Sea-Region Situation Viewer
+# Expert-Defined Sea-Region Simple Viewer
 # =========================================================
 
-st.set_page_config(
-    page_title="POLAR CUDA – Level 3",
-    layout="wide"
-)
+st.set_page_config(layout="wide")
 
 today = datetime.date.today()
 
-REFERENCE_ROI_IMAGE_URL = (
-    "https://raw.githubusercontent.com/your-id/polar-cuda/main/reference_roi.png"
-)
+BREMEN_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 
-BREMEN_AMSR2_URL = (
-    "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
-)
+@st.cache_data(ttl=3600)
+def load_image():
+    r = requests.get(BREMEN_URL, timeout=15)
+    r.raise_for_status()
+    return Image.open(BytesIO(r.content)).convert("RGB")
 
-def try_load_image(url):
-    try:
-        r = requests.get(url, timeout=15)
-        r.raise_for_status()
-        return Image.open(BytesIO(r.content)).convert("RGB")
-    except Exception:
-        return None
+# ---------------------------------------------------------
+# Pixel classification (simple & robust)
+# ---------------------------------------------------------
+def classify(rgb):
+    r, g, b = rgb
+    if g > 170 and g > r*1.2 and g > b*1.2:
+        return "land"
+    if b > 120 and b > r*1.2 and b > g*1.2:
+        return "water"
+    return "ice"
+
+# ---------------------------------------------------------
+# ⚠️ EXPERT-DEFINED ROIs (PIXEL COORDINATES)
+# 아래 값은 강박사님 그림에 맞게 한 번만 조정
+# (x1, y1, x2, y2)
+# ---------------------------------------------------------
+SEA_ROIS = {
+    "1. Sea of Okhotsk": (900, 150, 1200, 450),
+    "2. Bering Sea": (700, 350, 1000, 650),
+    "3. Chukchi Sea": (850, 550, 1150, 850),
+    "4. East Siberian Sea": (950, 550, 1250, 850),
+    "5. Laptev Sea": (1050, 550, 1350, 850),
+    "6. Kara Sea": (1250, 600, 1550, 850),
+    "7. Barents Sea": (1350, 650, 1650, 950),
+    "8. Beaufort Sea": (750, 750, 1050, 1050),
+    "9. Canadian Arctic Archipelago": (700, 900, 1000, 1200),
+    "10. Central Arctic Ocean": (900, 650, 1250, 1000),
+    "11. Greenland Sea": (1100, 900, 1350, 1200),
+    "12. Baffin Bay": (850, 1000, 1150, 1350),
+}
+
+# ---------------------------------------------------------
+# Region assessment
+# ---------------------------------------------------------
+def assess(img, roi):
+    arr = np.array(img)
+    x1,y1,x2,y2 = roi
+    ice = water = ocean = 0
+
+    for y in range(y1, y2, 3):
+        for x in range(x1, x2, 3):
+            c = classify(arr[y,x])
+            if c == "land": continue
+            ocean += 1
+            if c == "ice": ice += 1
+            if c == "water": water += 1
+
+    if ocean < 100:
+        return "⚪ Data insufficient"
+
+    ratio = ice / ocean
+
+    if ratio >= 0.8: return "🔴 Navigation NOT possible"
+    if ratio >= 0.5: return "🟠 Very high risk"
+    if ratio >= 0.2: return "🟡 Conditional"
+    return "🟢 Relatively open"
 
 # =========================================================
 # UI
 # =========================================================
 
 st.title("🧊 POLAR CUDA – Level 3")
-st.caption("Sea-Region Situation Viewer (Stable Expert-Defined Model)")
-st.caption(f"Analysis date: **{today}**")
+st.caption(f"Analysis date: {today} (Bremen AMSR2 daily PNG)")
 
-st.markdown("---")
+img = load_image()
+st.image(img, use_container_width=True)
 
-# ---------------------------------------------------------
-# Reference Sea-Region Definition
-# ---------------------------------------------------------
-st.subheader("① Reference Sea-Region Definition (Fixed)")
+st.markdown("## Sea-Region Navigation Feasibility (Simple View)")
 
-ref_img = try_load_image(REFERENCE_ROI_IMAGE_URL)
-
-if ref_img is None:
-    st.warning(
-        "Reference ROI image not available.\n\n"
-        "Please upload the expert-defined region image to GitHub "
-        "and update `REFERENCE_ROI_IMAGE_URL`."
-    )
-else:
-    st.image(
-        ref_img,
-        caption="Expert-defined Arctic sea regions (fixed reference)",
-        use_container_width=True
-    )
-
-st.markdown("---")
-
-# ---------------------------------------------------------
-# Daily AMSR2 Image
-# ---------------------------------------------------------
-st.subheader("② Daily Sea-Ice Situation (Bremen AMSR2)")
-
-bremen_img = try_load_image(BREMEN_AMSR2_URL)
-
-if bremen_img is None:
-    st.error("Failed to load Bremen AMSR2 daily image.")
-else:
-    st.image(
-        bremen_img,
-        caption="Bremen AMSR2 Arctic Sea-Ice Concentration (Daily PNG)",
-        use_container_width=True
-    )
-
-st.markdown("---")
+for name, roi in SEA_ROIS.items():
+    status = assess(img, roi)
+    st.markdown(f"**{name}** → {status}")
 
 st.caption(
-    f"""
-**Data Source & Legal Notice**
-
-Sea-ice imagery is provided by the University of Bremen (AMSR2 daily PNG):
-https://data.seaice.uni-bremen.de/amsr2/
-
-Sea-region boundaries are expert-defined operational constructs and do not
-represent official or legal boundaries.
-
-Situational awareness only. Not for navigation.
-Image reference date: **{today}**.
+    """
+Data source: University of Bremen AMSR2 daily sea-ice concentration PNG.  
+Regions are expert-defined operational sectors (non-authoritative).  
+This view provides situational awareness only.
 """
 )
