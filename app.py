@@ -41,6 +41,18 @@ CACHE_TTL = 3600
 ALPHA_HISTORY_FILE = "alpha_history.csv"
 
 # ---------------------------------------------------------
+# ✅ AMSR2 IMAGE DATE (HTTP header 기반)
+# ---------------------------------------------------------
+def get_amsr2_image_date():
+    try:
+        r = requests.head(AMSR2_URL, timeout=10)
+        if "Last-Modified" in r.headers:
+            return pd.to_datetime(r.headers["Last-Modified"]).date()
+    except Exception:
+        pass
+    return None
+
+# ---------------------------------------------------------
 # Regions (ROIs)
 # ---------------------------------------------------------
 REGIONS = {
@@ -59,7 +71,7 @@ REGIONS = {
 }
 
 # ---------------------------------------------------------
-# ✅ UPDATED REGION GROUPS (요청 반영)
+# Region groups (요청 반영)
 # ---------------------------------------------------------
 REGION_GROUPS = {
     "Pacific Arctic (situational bucket)": [
@@ -147,6 +159,21 @@ with st.expander("⚠ Disclaimer", expanded=True):
 if not st.checkbox("I understand and wish to continue"):
     st.stop()
 
+# ---------------------------------------------------------
+# Dates
+# ---------------------------------------------------------
+today = datetime.date.today()
+amsr2_date = get_amsr2_image_date()
+
+st.write(f"**Analysis date (app run):** {today}")
+if amsr2_date:
+    st.write(f"**Sea-ice image date (AMSR2):** {amsr2_date}")
+else:
+    st.write("**Sea-ice image date (AMSR2):** Unknown")
+
+# ---------------------------------------------------------
+# Settings
+# ---------------------------------------------------------
 step = st.slider("Sampling step", 2, 12, 4)
 t1, t2, t3, t4 = 15, 35, 60, 85
 
@@ -195,8 +222,7 @@ st.markdown("---")
 
 st.caption(
     f"CUDA = {CUDA_ACRONYM}. "
-    "Data source: University of Bremen AMSR2 daily PNG. "
+    f"Sea-ice image: University of Bremen AMSR2 daily PNG "
+    f"(image date: {amsr2_date if amsr2_date else 'unknown'}). "
     "POLAR CUDA provides situational awareness only."
 )
-
-
