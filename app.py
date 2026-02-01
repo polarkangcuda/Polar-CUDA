@@ -7,7 +7,7 @@ from io import BytesIO
 
 # =========================================================
 # POLAR CUDA – Level 3
-# Sea-Region Situation Viewer (Image-Based, Daily Updated)
+# Sea-Region Situation Viewer (Pixel-Accurate ROIs)
 # =========================================================
 
 st.set_page_config(
@@ -15,14 +15,8 @@ st.set_page_config(
     layout="wide"
 )
 
-# ---------------------------------------------------------
-# Date
-# ---------------------------------------------------------
 today = datetime.date.today()
 
-# ---------------------------------------------------------
-# Bremen AMSR2 daily PNG
-# ---------------------------------------------------------
 BREMEN_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 
 @st.cache_data(ttl=3600)
@@ -32,66 +26,41 @@ def load_bremen_png():
     return Image.open(BytesIO(r.content)).convert("RGB")
 
 # ---------------------------------------------------------
-# Pixel classification
+# Pixel classifier
 # ---------------------------------------------------------
 def classify_pixel(rgb):
     r, g, b = rgb
-
-    # Land (very strong green dominance – Bremen land mask)
-    if g > 170 and g > r * 1.25 and g > b * 1.25:
+    if g > 170 and g > r * 1.2 and g > b * 1.2:
         return "land"
-
-    # Open water (dark blue)
     if b > 120 and b > r * 1.2 and b > g * 1.2:
         return "water"
-
-    # Everything else = sea ice (all concentrations)
     return "ice"
 
 # ---------------------------------------------------------
-# Operational sea regions (12, non-authoritative ROIs)
-# Relative coordinates (x1, y1, x2, y2)
+# Pixel-based ROIs (hand-aligned to provided reference map)
+# (x1, y1, x2, y2)
 # ---------------------------------------------------------
 REGION_ROIS = {
-    "1. Sea of Okhotsk": (0.18, 0.05, 0.40, 0.28),
-    "2. Bering Sea": (0.05, 0.25, 0.25, 0.45),
-    "3. Chukchi Sea": (0.22, 0.35, 0.40, 0.55),
-    "4. East Siberian Sea": (0.32, 0.30, 0.48, 0.48),
-    "5. Laptev Sea": (0.42, 0.30, 0.58, 0.48),
-    "6. Kara Sea": (0.55, 0.35, 0.70, 0.50),
-    "7. Barents Sea": (0.60, 0.45, 0.80, 0.65),
-    "8. Beaufort Sea": (0.25, 0.45, 0.42, 0.65),
-    "9. Canadian Arctic Archipelago": (0.20, 0.60, 0.40, 0.80),
-    "10. Central Arctic Ocean": (0.35, 0.40, 0.55, 0.60),
-    "11. Greenland Sea": (0.50, 0.55, 0.70, 0.80),
-    "12. Baffin Bay": (0.35, 0.65, 0.55, 0.85),
+    "1. Sea of Okhotsk": (760, 140, 1040, 360),
+    "2. Bering Sea": (560, 320, 820, 520),
+    "3. Chukchi Sea": (760, 420, 980, 600),
+    "4. East Siberian Sea": (900, 420, 1120, 600),
+    "5. Laptev Sea": (1040, 420, 1260, 600),
+    "6. Kara Sea": (1180, 460, 1380, 640),
+    "7. Barents Sea": (1220, 620, 1480, 860),
+    "8. Beaufort Sea": (820, 560, 1040, 760),
+    "9. Canadian Arctic Archipelago": (760, 700, 980, 900),
+    "10. Central Arctic Ocean": (900, 540, 1160, 760),
+    "11. Greenland Sea": (1080, 760, 1320, 980),
+    "12. Baffin Bay": (820, 820, 1040, 1020),
 }
-
-# ---------------------------------------------------------
-# Draw ROI boxes on image
-# ---------------------------------------------------------
-def draw_rois(img, rois):
-    draw = ImageDraw.Draw(img)
-    w, h = img.size
-
-    for name, (x1, y1, x2, y2) in rois.items():
-        px1, py1 = int(x1 * w), int(y1 * h)
-        px2, py2 = int(x2 * w), int(y2 * h)
-
-        draw.rectangle([(px1, py1), (px2, py2)], outline="yellow", width=4)
-        draw.text((px1 + 5, py1 + 5), name.split(".")[0], fill="white")
-
-    return img
 
 # ---------------------------------------------------------
 # Region assessment
 # ---------------------------------------------------------
 def assess_region(img, roi):
     arr = np.array(img)
-    h, w, _ = arr.shape
-
-    x1, y1 = int(roi[0] * w), int(roi[1] * h)
-    x2, y2 = int(roi[2] * w), int(roi[3] * h)
+    x1, y1, x2, y2 = roi
 
     ocean = ice = water = 0
 
@@ -106,20 +75,20 @@ def assess_region(img, roi):
             elif cls == "water":
                 water += 1
 
-    if ocean < 150:
-        return "⚪ INSUFFICIENT DATA", 0.0, 0.0
+    if ocean < 200:
+        return "INSUFFICIENT DATA", 0, 0
 
     ice_ratio = ice / ocean
     water_ratio = water / ocean
 
     if ice_ratio > 0.8:
-        status = "🔴 ICE DOMINANT (Practically Closed)"
+        status = "🔴 ICE DOMINANT (Closed)"
     elif ice_ratio > 0.5:
-        status = "🟠 ICE HEAVY (High Risk)"
+        status = "🟠 ICE HEAVY"
     elif ice_ratio > 0.2:
-        status = "🟡 MIXED (Marginal)"
+        status = "🟡 MIXED"
     else:
-        status = "🟢 WATER DOMINANT (Relatively Open)"
+        status = "🟢 WATER DOMINANT"
 
     return status, ice_ratio, water_ratio
 
@@ -128,53 +97,52 @@ def assess_region(img, roi):
 # =========================================================
 
 st.title("🧊 POLAR CUDA – Level 3")
-st.caption("Sea-Region Situation Viewer (Image-Based)")
-st.caption(f"Bremen AMSR2 image reference date: **{today}**")
-
-st.markdown("---")
+st.caption("Sea-Region Situation Viewer (Pixel-Aligned)")
+st.caption(f"Bremen AMSR2 image date: **{today}**")
 
 img = load_bremen_png()
-img_boxed = draw_rois(img.copy(), REGION_ROIS)
+
+# Draw ROI boxes
+overlay = img.copy()
+draw = ImageDraw.Draw(overlay)
+for roi in REGION_ROIS.values():
+    draw.rectangle(roi, outline="yellow", width=3)
 
 st.image(
-    img_boxed,
-    caption="Bremen AMSR2 Arctic Sea Ice Concentration with Operational Sea Regions (Yellow Boxes)",
+    overlay,
+    caption="Bremen AMSR2 Arctic Sea Ice Concentration with Operational Sea Regions",
     use_container_width=True
 )
 
-st.markdown("## Regional Sea Ice Situation (Daily Snapshot)")
+st.markdown("## Regional Situation Summary")
 
 cols = st.columns(3)
-
-for idx, (region, roi) in enumerate(REGION_ROIS.items()):
-    with cols[idx % 3]:
+for i, (region, roi) in enumerate(REGION_ROIS.items()):
+    with cols[i % 3]:
         status, ice_r, water_r = assess_region(img, roi)
         st.markdown(f"### {region}")
         st.markdown(f"**Status:** {status}")
         st.markdown(f"- Ice pixels: {ice_r*100:.1f}%")
-        st.markdown(f"- Open water pixels: {water_r*100:.1f}%")
+        st.markdown(f"- Open water: {water_r*100:.1f}%")
 
 st.markdown("---")
-
 st.caption(
     f"""
 **Data Source & Legal Notice**
 
 Sea-ice information is derived from the publicly available daily AMSR2
-sea-ice concentration imagery provided by the University of Bremen:
+sea-ice concentration PNG provided by the University of Bremen  
 https://data.seaice.uni-bremen.de/amsr2/
 
-The yellow boxes represent **analytically defined, non-authoritative
-operational sea regions**, created for situational awareness and research
-discussion only.
+The yellow boxes represent **operational, non-authoritative sea regions**
+defined manually in pixel space to match the reference map provided by the user.
 
-They do **not** correspond to official navigational, legal, or IMO-defined
-sea boundaries.
+These regions are **not official geographic boundaries** and are used solely
+for situational awareness and analytical discussion.
 
-Image date corresponds to the daily Bremen update
-(reference date: **{today}**, UTC-based publication).
+Image reference date: **{today}** (UTC, based on Bremen daily update).
 
-This application provides situational awareness only and must not replace
-official ice services, navigational charts, or operational decision systems.
+This tool does **not** replace official ice services, navigational charts,
+or operational decision systems.
 """
 )
