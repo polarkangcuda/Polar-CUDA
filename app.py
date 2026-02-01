@@ -178,7 +178,7 @@ for i, (g, members) in enumerate(REGION_GROUPS.items()):
         st.progress(int(avg))
 
 # =========================================================
-# ✅ INDIVIDUAL REGIONS (복구된 핵심 부분)
+# INDIVIDUAL REGIONS
 # =========================================================
 st.markdown("---")
 st.subheader("Sea-region situational gauges")
@@ -188,5 +188,15 @@ for _, r in df.iterrows():
     st.write(f"**{r['Region']}** → {lvl}  |  {r['Hybrid']}%")
     st.progress(int(r["Hybrid"]))
 
+# =========================================================
+# FOOTER / DATA SOURCE
+# =========================================================
 st.markdown("---")
-st.caption("POLAR CUDA provides situational awareness only.")
+
+st.caption(
+    f"CUDA = {CUDA_ACRONYM}. "
+    "Data source: University of Bremen AMSR2 daily PNG. "
+    "POLAR CUDA provides situational awareness only."
+)
+
+
