@@ -7,63 +7,18 @@ from io import BytesIO
 
 # =========================================================
 # POLAR CUDA – Level 3
-# Image-Derived Operational Risk Proxy (Bremen AMSR2 PNG)
+# Sea-Region Situation Viewer (Image-Based, Daily Updated)
 # =========================================================
 
 st.set_page_config(
-    page_title="POLAR CUDA – Level 3",
-    layout="centered"
+    page_title="POLAR CUDA – Level 3 (Sea Regions)",
+    layout="wide"
 )
 
 # ---------------------------------------------------------
-# Date & season
+# Date
 # ---------------------------------------------------------
 today = datetime.date.today()
-month = today.month
-
-if month in [12, 1, 2, 3]:
-    SEASON = "winter"
-elif month in [4, 5]:
-    SEASON = "spring"
-elif month in [6, 7, 8, 9]:
-    SEASON = "summer"
-else:
-    SEASON = "autumn"
-
-# ---------------------------------------------------------
-# Operational Sea Sectors (12, non-authoritative)
-# ---------------------------------------------------------
-REGIONS = [
-    "Sea of Okhotsk",
-    "Bering Sea",
-    "Chukchi Sea",
-    "East Siberian Sea",
-    "Laptev Sea",
-    "Kara Sea",
-    "Barents Sea",
-    "Beaufort Sea",
-    "Canadian Arctic Archipelago",
-    "Central Arctic Ocean",
-    "Greenland Sea",
-    "Baffin Bay",
-]
-
-# Structurally winter-closed seas
-WINTER_CLOSED = {
-    "Chukchi Sea",
-    "East Siberian Sea",
-    "Laptev Sea",
-    "Beaufort Sea",
-    "Central Arctic Ocean",
-}
-
-# Seasonal modifier (conservative)
-SEASON_MODIFIER = {
-    "winter": 1.00,
-    "spring": 0.85,
-    "summer": 0.65,
-    "autumn": 1.15,
-}
 
 # ---------------------------------------------------------
 # Bremen AMSR2 daily PNG
@@ -72,20 +27,17 @@ BREMEN_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png
 
 @st.cache_data(ttl=3600)
 def load_bremen_png():
-    try:
-        r = requests.get(BREMEN_URL, timeout=10)
-        r.raise_for_status()
-        return Image.open(BytesIO(r.content)).convert("RGB")
-    except Exception:
-        return None
+    r = requests.get(BREMEN_URL, timeout=15)
+    r.raise_for_status()
+    return Image.open(BytesIO(r.content)).convert("RGB")
 
 # ---------------------------------------------------------
-# Pixel classification
+# Pixel classification (robust & conservative)
 # ---------------------------------------------------------
 def classify_pixel(rgb):
     r, g, b = rgb
 
-    # Land (bright green on Bremen map)
+    # Land (bright green)
     if g > 170 and g > r * 1.2 and g > b * 1.2:
         return "land"
 
@@ -93,135 +45,117 @@ def classify_pixel(rgb):
     if b > 120 and b > r * 1.2 and b > g * 1.2:
         return "water"
 
-    # All remaining colors represent sea ice (any concentration)
+    # All remaining colors = sea ice (any concentration)
     return "ice"
 
 # ---------------------------------------------------------
-# Openability proxy (image-based, conservative)
+# Operational sea regions (non-authoritative ROIs)
+# Relative ratios based on visual interpretation
 # ---------------------------------------------------------
-def compute_openability(img):
+REGION_ROIS = {
+    "Sea of Okhotsk": (0.18, 0.05, 0.40, 0.28),
+    "Bering Sea": (0.05, 0.25, 0.25, 0.45),
+    "Chukchi Sea": (0.22, 0.35, 0.40, 0.55),
+    "East Siberian Sea": (0.32, 0.30, 0.48, 0.48),
+    "Laptev Sea": (0.42, 0.30, 0.58, 0.48),
+    "Kara Sea": (0.55, 0.35, 0.70, 0.50),
+    "Barents Sea": (0.60, 0.45, 0.80, 0.65),
+    "Beaufort Sea": (0.25, 0.45, 0.42, 0.65),
+    "Canadian Arctic Archipelago": (0.20, 0.60, 0.40, 0.80),
+    "Central Arctic Ocean": (0.35, 0.40, 0.55, 0.60),
+    "Greenland Sea": (0.50, 0.55, 0.70, 0.80),
+    "Baffin Bay": (0.35, 0.65, 0.55, 0.85),
+}
+
+# ---------------------------------------------------------
+# Region situation assessment
+# ---------------------------------------------------------
+def assess_region(img, roi):
     arr = np.array(img)
     h, w, _ = arr.shape
 
-    ocean_pixels = 0
-    open_water = 0
+    x1 = int(roi[0] * w)
+    y1 = int(roi[1] * h)
+    x2 = int(roi[2] * w)
+    y2 = int(roi[3] * h)
 
-    # Subsample to reduce noise and cost
-    for y in range(0, h, 4):
-        for x in range(0, w, 4):
+    ocean = ice = water = 0
+
+    for y in range(y1, y2, 4):
+        for x in range(x1, x2, 4):
             cls = classify_pixel(arr[y, x])
             if cls == "land":
                 continue
-            ocean_pixels += 1
-            if cls == "water":
-                open_water += 1
+            ocean += 1
+            if cls == "ice":
+                ice += 1
+            elif cls == "water":
+                water += 1
 
-    if ocean_pixels == 0:
-        return None
+    if ocean < 100:
+        return "INSUFFICIENT DATA", 0, 0
 
-    return open_water / ocean_pixels
+    ice_ratio = ice / ocean
+    water_ratio = water / ocean
 
-# ---------------------------------------------------------
-# Risk status
-# ---------------------------------------------------------
-def classify_status(risk):
-    if risk < 30:
-        return "LOW", "🟢"
-    if risk < 50:
-        return "MODERATE", "🟡"
-    if risk < 70:
-        return "HIGH", "🟠"
-    return "EXTREME", "🔴"
+    if ice_ratio > 0.8:
+        status = "ICE DOMINANT (Practically Closed)"
+        icon = "🔴"
+    elif ice_ratio > 0.5:
+        status = "ICE HEAVY (High Operational Risk)"
+        icon = "🟠"
+    elif ice_ratio > 0.2:
+        status = "MIXED (Conditional / Marginal)"
+        icon = "🟡"
+    else:
+        status = "WATER DOMINANT (Relatively Open)"
+        icon = "🟢"
+
+    return f"{icon} {status}", ice_ratio, water_ratio
 
 # =========================================================
 # UI
 # =========================================================
 
 st.title("🧊 POLAR CUDA – Level 3")
-st.caption("Cryospheric Unified Decision Assistant")
-st.caption(f"Analysis date (local): {today}")
-st.caption(f"Season detected: **{SEASON.upper()}**")
-
-region = st.selectbox("Select Operational Sea Sector", REGIONS)
+st.caption("Sea-Region Situation Viewer (Image-Based)")
+st.caption(f"Image reference date: **{today}** (Bremen AMSR2 daily update)")
 
 st.markdown("---")
 
-# ---------------------------------------------------------
-# Core logic
-# ---------------------------------------------------------
-if SEASON == "winter" and region in WINTER_CLOSED:
-    base_risk = 95.0
-    reason = "Structural winter closure: regional openability effectively zero."
+img = load_bremen_png()
+st.image(img, caption="Bremen AMSR2 Arctic Sea Ice Concentration (Daily PNG)", use_container_width=True)
 
-else:
-    img = load_bremen_png()
-    if img is None:
-        st.error("Unable to load Bremen AMSR2 daily imagery.")
-        st.stop()
+st.markdown("## Regional Sea Ice Situation")
 
-    open_ratio = compute_openability(img)
-    if open_ratio is None:
-        st.error("Unable to compute image-based openability proxy.")
-        st.stop()
+cols = st.columns(3)
 
-    base_risk = (1.0 - open_ratio) * 100.0
-    reason = f"Image-derived open water ratio (proxy): {open_ratio*100:.1f}%"
+for idx, (region, roi) in enumerate(REGION_ROIS.items()):
+    with cols[idx % 3]:
+        status, ice_r, water_r = assess_region(img, roi)
+        st.markdown(f"### {region}")
+        st.markdown(f"**Status:** {status}")
+        st.markdown(f"- Ice-dominant pixels: {ice_r*100:.1f}%")
+        st.markdown(f"- Open-water pixels: {water_r*100:.1f}%")
 
-risk_index = round(
-    np.clip(base_risk * SEASON_MODIFIER[SEASON], 0, 100),
-    1
-)
-
-status, color = classify_status(risk_index)
-
-# ---------------------------------------------------------
-# Display
-# ---------------------------------------------------------
-st.subheader("Regional Navigation Risk (Image-Based, Season-Aware)")
-
-st.markdown(f"### {color} **{status}**")
-st.markdown(f"**Risk Index:** {risk_index} / 100")
-st.progress(int(risk_index))
-
-st.markdown(
-    f"""
-**Operational Interpretation (Non-Directive)**
-
-- Selected Sector: **{region}**
-- Assessment Basis: **Bremen AMSR2 image-derived proxy**
-- Season Logic Applied: **{SEASON.upper()}**
-- Diagnostic Note: {reason}
-
-This indicator represents **relative operational risk**, not route availability.
-It is designed to support situational awareness and risk reasoning only.
-
-Final operational decisions remain the responsibility of operators and vessel masters.
-"""
-)
-
-# ---------------------------------------------------------
-# Legal & methodological notice
-# ---------------------------------------------------------
 st.markdown("---")
+
 st.caption(
     f"""
-**Data Source & Methodology Notice**
+**Data Source & Legal Notice**
 
-Sea-ice information is derived from the publicly available daily AMSR2 sea-ice
-concentration imagery provided by the University of Bremen:
+Sea-ice information is derived from the publicly available daily AMSR2
+sea-ice concentration imagery provided by the University of Bremen:
 https://data.seaice.uni-bremen.de/amsr2/
 
-This Level 3 analysis does **not** use authoritative gridded concentration products
-or official regional masks. Instead, it applies an image-based color-quantization
-proxy within approximate, analytically defined Arctic subregions for situational
-awareness purposes.
+This application uses **image-based color interpretation** within
+**approximate, non-authoritative Arctic sea regions** defined for
+situational awareness and analytical discussion.
 
-The regional sectors used here are **operational constructs**, not legally defined
-or authoritative sea region boundaries.
+The regional divisions shown here are **operational constructs** and do
+not represent official, legal, or navigational boundaries.
 
-Analysis date of the imagery: **{today}** (UTC reference, based on daily Bremen update).
-
-This application provides situational awareness only and must not replace official
-ice services, navigational charts, or operational decision systems.
+This tool provides situational awareness only and must not replace
+official ice services, navigational products, or operational decision systems.
 """
 )
