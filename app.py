@@ -4,15 +4,14 @@ import numpy as np
 from PIL import Image, ImageDraw
 import requests
 from io import BytesIO
-import os
 
 # =========================================================
 # POLAR CUDA – Level 3
-# Sea-Region Situation Viewer (Fail-Safe ROI Model)
+# Stable ROI Sea-Region Viewer (Pixel-Locked Model)
 # =========================================================
 
 st.set_page_config(
-    page_title="POLAR CUDA – Level 3 (Sea Regions)",
+    page_title="POLAR CUDA – Level 3 (Stable ROI)",
     layout="wide"
 )
 
@@ -22,14 +21,10 @@ st.set_page_config(
 today = datetime.date.today()
 
 # ---------------------------------------------------------
-# Paths & URLs
+# Bremen AMSR2 PNG (DO NOT RESIZE)
 # ---------------------------------------------------------
-REFERENCE_IMAGE_PATH = "reference_roi.png"
 BREMEN_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 
-# ---------------------------------------------------------
-# Load Bremen AMSR2 image
-# ---------------------------------------------------------
 @st.cache_data(ttl=3600)
 def load_bremen_png():
     r = requests.get(BREMEN_URL, timeout=15)
@@ -37,23 +32,10 @@ def load_bremen_png():
     return Image.open(BytesIO(r.content)).convert("RGB")
 
 # ---------------------------------------------------------
-# Load reference image (fail-safe)
-# ---------------------------------------------------------
-def load_reference_image_or_fallback(bremen_img):
-    if os.path.exists(REFERENCE_IMAGE_PATH):
-        ref = Image.open(REFERENCE_IMAGE_PATH).convert("RGB")
-        source = "User-provided fixed reference image"
-    else:
-        ref = bremen_img.copy()
-        source = "Daily Bremen image (automatic fallback reference)"
-    return ref, source
-
-# ---------------------------------------------------------
-# Pixel classification
+# Pixel classifier (simple & robust)
 # ---------------------------------------------------------
 def classify_pixel(rgb):
     r, g, b = rgb
-
     if g > 170 and g > r * 1.2 and g > b * 1.2:
         return "land"
     if b > 120 and b > r * 1.2 and b > g * 1.2:
@@ -61,16 +43,16 @@ def classify_pixel(rgb):
     return "ice"
 
 # ---------------------------------------------------------
-# Fixed ROIs (pixel coordinates)
+# FIXED ROIs (pixel coordinates, Bremen native PNG)
 # ---------------------------------------------------------
 REGION_ROIS = {
-    "1. Sea of Okhotsk": (620, 110, 910, 330),
-    "2. Bering Sea": (450, 300, 720, 500),
-    "3. Chukchi Sea": (620, 420, 850, 620),
-    "4. East Siberian Sea": (780, 420, 1010, 620),
-    "5. Laptev Sea": (950, 420, 1180, 620),
+    "1. Sea of Okhotsk": (620, 120, 900, 330),
+    "2. Bering Sea": (450, 280, 720, 500),
+    "3. Chukchi Sea": (610, 420, 830, 610),
+    "4. East Siberian Sea": (780, 420, 1000, 610),
+    "5. Laptev Sea": (950, 420, 1180, 610),
     "6. Kara Sea": (1120, 460, 1320, 660),
-    "7. Barents Sea": (1160, 640, 1440, 900),
+    "7. Barents Sea": (1160, 650, 1420, 900),
     "8. Beaufort Sea": (680, 560, 900, 760),
     "9. Canadian Arctic Archipelago": (640, 700, 860, 900),
     "10. Central Arctic Ocean": (820, 540, 1080, 780),
@@ -84,7 +66,6 @@ REGION_ROIS = {
 def assess_region(img, roi):
     arr = np.array(img)
     x1, y1, x2, y2 = roi
-
     ocean = ice = water = 0
 
     for y in range(y1, y2, 4):
@@ -99,17 +80,17 @@ def assess_region(img, roi):
                 water += 1
 
     if ocean < 200:
-        return "⚪ INSUFFICIENT DATA", 0.0, 0.0
+        return "⚪ INSUFFICIENT DATA", 0, 0
 
     ice_ratio = ice / ocean
     water_ratio = water / ocean
 
     if ice_ratio > 0.8:
-        status = "🔴 ICE DOMINANT (Practically Closed)"
+        status = "🔴 ICE DOMINANT (Closed)"
     elif ice_ratio > 0.5:
-        status = "🟠 ICE HEAVY (High Risk)"
+        status = "🟠 ICE HEAVY"
     elif ice_ratio > 0.2:
-        status = "🟡 MIXED (Conditional)"
+        status = "🟡 MIXED"
     else:
         status = "🟢 WATER DOMINANT"
 
@@ -120,27 +101,23 @@ def assess_region(img, roi):
 # =========================================================
 
 st.title("🧊 POLAR CUDA – Level 3")
-st.caption("Sea-Region Situation Viewer (Fail-Safe Reference Model)")
+st.caption("Stable Sea-Region Viewer (Pixel-Locked)")
 st.caption(f"Analysis date: **{today}** (Bremen AMSR2 daily PNG)")
 
 st.markdown("---")
 
-bremen_img = load_bremen_png()
-ref_img, ref_source = load_reference_image_or_fallback(bremen_img)
+img = load_bremen_png()
 
-# Align daily image to reference
-aligned_img = bremen_img.resize(ref_img.size, Image.BILINEAR)
-
-# Draw ROIs
-overlay = aligned_img.copy()
+# Draw ROIs (NO RESIZE, NO AUTO SCALE)
+overlay = img.copy()
 draw = ImageDraw.Draw(overlay)
 for roi in REGION_ROIS.values():
     draw.rectangle(roi, outline="yellow", width=3)
 
 st.image(
     overlay,
-    caption=f"Reference-aligned AMSR2 image | Reference source: {ref_source}",
-    use_container_width=True
+    caption="Bremen AMSR2 Arctic Sea Ice Concentration (ROIs fixed to native pixel grid)",
+    use_container_width=False
 )
 
 # ---------------------------------------------------------
@@ -152,7 +129,7 @@ cols = st.columns(3)
 
 for i, (region, roi) in enumerate(REGION_ROIS.items()):
     with cols[i % 3]:
-        status, ice_r, water_r = assess_region(aligned_img, roi)
+        status, ice_r, water_r = assess_region(img, roi)
         st.markdown(f"### {region}")
         st.markdown(f"**Status:** {status}")
         st.markdown(f"- Ice: {ice_r*100:.1f}%")
@@ -164,16 +141,8 @@ for i, (region, roi) in enumerate(REGION_ROIS.items()):
 st.markdown("---")
 st.caption(
     """
-**Data Source & Legal Notice**
-
-Sea-ice information is derived from the publicly available daily AMSR2
-sea-ice concentration imagery provided by the University of Bremen:
-https://data.seaice.uni-bremen.de/amsr2/
-
-Regional boxes are **user-defined operational ROIs** for situational awareness.
-They are not official navigational or legal boundaries.
-
-This tool supports analysis and discussion only and must not replace
-official ice services or operational decision authority.
+Sea-ice data: University of Bremen AMSR2 daily PNG  
+ROIs are user-defined analytical constructs (non-navigational).  
+This tool supports situational awareness only.
 """
 )
