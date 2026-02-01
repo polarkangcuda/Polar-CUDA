@@ -8,29 +8,25 @@ import pandas as pd
 
 # =========================================================
 # POLAR CUDA (Cryospheric Uncertainty & Decision Awareness)
-# POLAR CUDA Index
+# Sea-Region Ice Area Index (Human-eye based)
 #
 # “This index is designed for decision awareness,
 #  not decision-making.”
-#
-# A daily situational awareness index
-# for Arctic sea-ice conditions.
 # =========================================================
 
 st.set_page_config(
-    page_title="POLAR CUDA – Ice Risk Index",
+    page_title="POLAR CUDA – Sea-Region Ice Area",
     layout="centered"
 )
 
 # ---------------------------------------------------------
-# Data source
+# Data source (visual NIC-style PNG)
 # ---------------------------------------------------------
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 CACHE_TTL = 3600  # seconds
 
 # ---------------------------------------------------------
-# Expert-defined fixed ROIs (pixel coordinates)
-# (based on your white-box definition)
+# Expert-defined ROIs (pixel coordinates)
 # ---------------------------------------------------------
 REGIONS = {
     "Sea of Okhotsk": (620, 90, 900, 330),
@@ -48,7 +44,7 @@ REGIONS = {
 }
 
 # ---------------------------------------------------------
-# Load AMSR2 image
+# Load image (safe & cached)
 # ---------------------------------------------------------
 @st.cache_data(ttl=CACHE_TTL)
 def load_image():
@@ -58,52 +54,85 @@ def load_image():
     return np.array(img)
 
 # ---------------------------------------------------------
-# Human-eye-based pixel perception
+# Simple k-means (RGB only, no sklearn)
 # ---------------------------------------------------------
-def perceive_pixel(rgb):
-    r, g, b = rgb
-    brightness = r + g + b  # 0 ~ 765
+def kmeans_rgb(pixels, k=3, iters=10, seed=0):
+    rng = np.random.default_rng(seed)
+    centers = pixels[rng.choice(len(pixels), k, replace=False)]
 
-    # --- Land (dark/vivid green only) ---
-    if g > 140 and g > r * 1.2 and g > b * 1.2:
-        return "land"
-
-    # --- Open water: ONLY very dark navy ---
-    if (b > 110) and (b > r + 30) and (b > g + 30) and (brightness < 260):
-        return "water"
-
-    # --- Everything else is visually ice ---
-    return "ice"
-
-# ---------------------------------------------------------
-# Ice area index (human-eye based)
-# ---------------------------------------------------------
-def compute_ice_index(img, roi, step=3):
-    x1, y1, x2, y2 = roi
-    ice = water = 0
-
-    h, w, _ = img.shape
-    x1, x2 = max(0, x1), min(w - 1, x2)
-    y1, y2 = max(0, y1), min(h - 1, y2)
-
-    for y in range(y1, y2, step):
-        for x in range(x1, x2, step):
-            p = perceive_pixel(img[y, x])
-            if p == "land":
-                continue
-            if p == "ice":
-                ice += 1
+    for _ in range(iters):
+        dists = np.linalg.norm(pixels[:, None, :] - centers[None, :, :], axis=2)
+        labels = np.argmin(dists, axis=1)
+        new_centers = []
+        for i in range(k):
+            if np.any(labels == i):
+                new_centers.append(pixels[labels == i].mean(axis=0))
             else:
-                water += 1
+                new_centers.append(centers[i])
+        new_centers = np.array(new_centers)
+        if np.allclose(centers, new_centers, atol=2):
+            break
+        centers = new_centers
 
-    total = ice + water
-    if total == 0:
+    return centers, labels
+
+# ---------------------------------------------------------
+# Identify land / water / ice clusters (human-eye logic)
+# ---------------------------------------------------------
+def classify_clusters(centers):
+    # land: strong green
+    land_idx = np.argmax(centers[:, 1])
+
+    # water: strong blue
+    water_idx = np.argmax(centers[:, 2])
+
+    # ice: remaining cluster
+    ice_idx = list({0, 1, 2} - {land_idx, water_idx})[0]
+
+    return land_idx, water_idx, ice_idx
+
+# ---------------------------------------------------------
+# Human-eye based ice area index
+# ---------------------------------------------------------
+def compute_ice_index(arr, roi, step=3):
+    x1, y1, x2, y2 = roi
+    h, w, _ = arr.shape
+
+    x1 = max(0, min(w - 1, x1))
+    x2 = max(0, min(w, x2))
+    y1 = max(0, min(h - 1, y1))
+    y2 = max(0, min(h, y2))
+
+    pixels = arr[y1:y2:step, x1:x2:step].reshape(-1, 3).astype(np.float32)
+    if len(pixels) < 300:
         return None
 
-    return round((ice / total) * 100, 1)
+    centers, labels = kmeans_rgb(pixels, k=3, iters=12, seed=7)
+    land_c, water_c, ice_c = classify_clusters(centers)
+
+    land_n = np.sum(labels == land_c)
+    water_n = np.sum(labels == water_c)
+    ice_n = np.sum(labels == ice_c)
+
+    total = land_n + water_n + ice_n
+    sea = water_n + ice_n
+    if sea == 0:
+        return None
+
+    ice_ratio_sea = ice_n / sea
+    ice_ratio_total = ice_n / total
+
+    # -------------------------------------------------
+    # 🔑 HUMAN-EYE DOMINANCE OVERRIDE
+    # -------------------------------------------------
+    # 해빙이 "덩어리로 지배"하면 100%
+    if ice_ratio_sea >= 0.6 and ice_ratio_total >= 0.5:
+        return 100.0
+
+    return round(ice_ratio_sea * 100, 1)
 
 # ---------------------------------------------------------
-# Simple, intuitive labels
+# Label
 # ---------------------------------------------------------
 def label(idx):
     if idx >= 80:
@@ -118,14 +147,10 @@ def label(idx):
 # UI
 # =========================================================
 
-st.title("🧊 POLAR CUDA – Ice Risk Index")
+st.title("🧊 POLAR CUDA – Sea-Region Ice Area")
 st.markdown(
     "**POLAR CUDA (Cryospheric Uncertainty & Decision Awareness)**  \n"
-    "*This index is designed for decision awareness, not decision-making.*"
-)
-
-st.caption(
-    "A daily situational awareness index for Arctic sea-ice conditions."
+    "*Human-eye based sea-region ice dominance index*"
 )
 
 today = datetime.date.today()
@@ -135,16 +160,13 @@ if st.button("🔄 Refresh"):
     st.cache_data.clear()
     st.rerun()
 
-# ---------------------------------------------------------
-# Compute indices
-# ---------------------------------------------------------
-img = load_image()
+arr = load_image()
 
 results = []
 indices = []
 
 for region, roi in REGIONS.items():
-    idx = compute_ice_index(img, roi)
+    idx = compute_ice_index(arr, roi)
     if idx is not None:
         indices.append(idx)
         results.append({
@@ -161,9 +183,7 @@ for region, roi in REGIONS.items():
 
 df = pd.DataFrame(results)
 
-# ---------------------------------------------------------
-# Overall Polar CUDA Index
-# ---------------------------------------------------------
+# Overall index
 if indices:
     overall = round(sum(indices) / len(indices), 1)
     st.metric("POLAR CUDA Index (overall)", f"{overall} / 100")
@@ -172,21 +192,16 @@ st.markdown("---")
 st.subheader("Sea-Region Ice Area (Human-eye based)")
 
 for _, r in df.iterrows():
-    st.write(
-        f"**{r['Region']}** → {r['Status']}  |  Index: {r['Index']}"
-    )
+    st.write(f"**{r['Region']}** → {r['Status']} | Index: {r['Index']}")
 
 st.markdown("---")
 st.caption(
     """
-**Data source**: University of Bremen AMSR2 daily sea-ice concentration PNG.
+**Data source**: University of Bremen AMSR2 daily NIC-style PNG.
 
-This index reflects **visually perceived sea-ice area**
-within expert-defined Arctic sea regions.
+This index reflects **human-eye based ice dominance**
+within expert-defined sea regions.
 
-It is designed for **decision awareness**, similar to a market sentiment index.
-
-⚠ This tool does **not** indicate navigability, routing feasibility,
-or replace official ice services or operational decision systems.
+⚠ Not for navigation, routing, or operational decision-making.
 """
 )
