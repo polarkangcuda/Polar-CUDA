@@ -7,7 +7,7 @@ from io import BytesIO
 
 # =========================================================
 # POLAR CUDA – Level 3
-# Expert-Defined Sea-Region Simple Viewer
+# Expert-Defined Sea-Region Simple Viewer (STABLE)
 # =========================================================
 
 st.set_page_config(layout="wide")
@@ -23,7 +23,7 @@ def load_image():
     return Image.open(BytesIO(r.content)).convert("RGB")
 
 # ---------------------------------------------------------
-# Pixel classification (simple & robust)
+# Pixel classification
 # ---------------------------------------------------------
 def classify(rgb):
     r, g, b = rgb
@@ -35,8 +35,7 @@ def classify(rgb):
 
 # ---------------------------------------------------------
 # ⚠️ EXPERT-DEFINED ROIs (PIXEL COORDINATES)
-# 아래 값은 강박사님 그림에 맞게 한 번만 조정
-# (x1, y1, x2, y2)
+# 반드시 '참고 그림 기준'으로 한 번만 조정
 # ---------------------------------------------------------
 SEA_ROIS = {
     "1. Sea of Okhotsk": (900, 150, 1200, 450),
@@ -54,29 +53,42 @@ SEA_ROIS = {
 }
 
 # ---------------------------------------------------------
-# Region assessment
+# Region assessment (SAFE)
 # ---------------------------------------------------------
 def assess(img, roi):
     arr = np.array(img)
-    x1,y1,x2,y2 = roi
+    h, w, _ = arr.shape
+
+    # 🔒 ROI 자동 클리핑 (핵심 수정)
+    x1 = max(0, min(w-1, roi[0]))
+    y1 = max(0, min(h-1, roi[1]))
+    x2 = max(0, min(w,   roi[2]))
+    y2 = max(0, min(h,   roi[3]))
+
     ice = water = ocean = 0
 
     for y in range(y1, y2, 3):
         for x in range(x1, x2, 3):
-            c = classify(arr[y,x])
-            if c == "land": continue
+            c = classify(arr[y, x])
+            if c == "land":
+                continue
             ocean += 1
-            if c == "ice": ice += 1
-            if c == "water": water += 1
+            if c == "ice":
+                ice += 1
+            elif c == "water":
+                water += 1
 
     if ocean < 100:
         return "⚪ Data insufficient"
 
     ratio = ice / ocean
 
-    if ratio >= 0.8: return "🔴 Navigation NOT possible"
-    if ratio >= 0.5: return "🟠 Very high risk"
-    if ratio >= 0.2: return "🟡 Conditional"
+    if ratio >= 0.8:
+        return "🔴 Navigation NOT possible"
+    if ratio >= 0.5:
+        return "🟠 Very high risk"
+    if ratio >= 0.2:
+        return "🟡 Conditional"
     return "🟢 Relatively open"
 
 # =========================================================
@@ -84,6 +96,7 @@ def assess(img, roi):
 # =========================================================
 
 st.title("🧊 POLAR CUDA – Level 3")
+st.caption("Expert-defined sea-region navigation feasibility (simple view)")
 st.caption(f"Analysis date: {today} (Bremen AMSR2 daily PNG)")
 
 img = load_image()
@@ -98,7 +111,8 @@ for name, roi in SEA_ROIS.items():
 st.caption(
     """
 Data source: University of Bremen AMSR2 daily sea-ice concentration PNG.  
-Regions are expert-defined operational sectors (non-authoritative).  
-This view provides situational awareness only.
+Sea regions are expert-defined operational sectors (non-authoritative).  
+This view provides situational awareness only and must not replace
+official ice services or navigational decision systems.
 """
 )
