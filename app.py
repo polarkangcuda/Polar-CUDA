@@ -5,25 +5,33 @@ from PIL import Image
 from io import BytesIO
 import datetime
 import pandas as pd
+import os
 
 # =========================================================
-# POLAR CUDA
-# Sea Ice Situational Awareness Gauge (NO PLOTLY)
+# POLAR CUDA – Sea Ice Situational Awareness Gauge (v2.2)
+# ---------------------------------------------------------
+# - Human-vision proxy + regional correction (alpha)
+# - Logs alpha history
+# - Seasonal alpha trend (monthly)
+# - Yesterday vs Today delta
+# - Regional group averages (Pacific/Atlantic)
 #
 # Designed for decision awareness, not decision-making.
-# Not a navigation or routing tool.
+# Not a navigation/routing/feasibility product.
 # =========================================================
 
-st.set_page_config(
-    page_title="POLAR CUDA – Sea Ice Gauge",
-    layout="centered"
-)
+st.set_page_config(page_title="POLAR CUDA – Sea Ice Gauge", layout="centered")
 
 # ---------------------------------------------------------
 # Data source (daily updated)
 # ---------------------------------------------------------
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 CACHE_TTL = 3600
+
+# ---------------------------------------------------------
+# Files for logging
+# ---------------------------------------------------------
+ALPHA_HISTORY_FILE = "alpha_history.csv"
 
 # ---------------------------------------------------------
 # Fixed ROIs (expert-defined)
@@ -44,7 +52,26 @@ REGIONS = {
 }
 
 # ---------------------------------------------------------
-# Human visual correction factors (default)
+# Regional groups (situational awareness buckets)
+# You can adjust membership freely.
+# ---------------------------------------------------------
+REGION_GROUPS = {
+    "Pacific Arctic": [
+        "Sea of Okhotsk",
+        "Bering Sea",
+        "Chukchi Sea",
+        "Beaufort Sea",
+    ],
+    "Atlantic Arctic": [
+        "Barents Sea",
+        "Greenland Sea",
+        "Baffin Bay",
+        "Kara Sea",
+    ],
+}
+
+# ---------------------------------------------------------
+# Default alpha correction (Dr. Kang visual alignment)
 # ---------------------------------------------------------
 DEFAULT_CORRECTION = {
     "Sea of Okhotsk": 0.55,
@@ -72,24 +99,24 @@ def load_image():
     return np.array(img)
 
 # ---------------------------------------------------------
-# Pixel classifier (human-vision aligned)
+# Pixel classifier (simple human-vision proxy)
 # ---------------------------------------------------------
 def classify_pixel(rgb):
     r, g, b = rgb
 
-    # LAND (bright green)
+    # LAND: bright green
     if g > 160 and g > r * 1.15 and g > b * 1.15:
         return "land"
 
-    # WATER (any blue-dominant tone)
+    # WATER: blue-dominant tones (dark/light/cyan)
     if b > r and b > g:
         return "water"
 
-    # ICE (pink / purple / yellow / red / white)
+    # ICE: everything else (pink/purple/yellow/red/white etc.)
     return "ice"
 
 # ---------------------------------------------------------
-# Raw ice percentage (satellite color proxy)
+# Raw ice percentage in ROI (satellite color proxy)
 # ---------------------------------------------------------
 def compute_raw_ice(arr, roi, step=4):
     x1, y1, x2, y2 = roi
@@ -115,7 +142,7 @@ def compute_raw_ice(arr, roi, step=4):
     return (ice / (ice + water)) * 100.0
 
 # ---------------------------------------------------------
-# Hybrid ice area (%)
+# Hybrid ice area (%) with alpha correction
 # ---------------------------------------------------------
 def clamp_0_100(v):
     return max(0.0, min(100.0, v))
@@ -124,14 +151,13 @@ def compute_hybrid_ice(arr, region, roi, correction, step=4):
     raw = compute_raw_ice(arr, roi, step)
     if raw is None:
         return None, None
+
     alpha = correction.get(region, 1.0)
     hybrid = clamp_0_100(raw * alpha)
     return round(raw, 1), round(hybrid, 1)
 
 # ---------------------------------------------------------
-# Fear & Greed style mapping
-# NOTE: We avoid "navigable / not navigable"
-# Use "Operational Friction" language
+# Fear & Greed style gauge labels (avoid navigability claims)
 # ---------------------------------------------------------
 def friction_level(ice_pct, t1, t2, t3, t4):
     if ice_pct <= t1:
@@ -144,24 +170,31 @@ def friction_level(ice_pct, t1, t2, t3, t4):
         return "🟠 Constrained", "High friction"
     return "🔴 Extreme Constrained", "Very high friction"
 
-def friction_color_band(ice_pct, t1, t2, t3, t4):
-    # For a simple color hint in text only (no external libs)
-    if ice_pct <= t1:
-        return "green"
-    if ice_pct <= t2:
-        return "green"
-    if ice_pct <= t3:
-        return "orange"
-    if ice_pct <= t4:
-        return "orange"
-    return "red"
+# ---------------------------------------------------------
+# Alpha history logging (append-only; idempotent per day)
+# ---------------------------------------------------------
+def save_alpha_history(correction, date_obj):
+    date_str = str(date_obj)
+    rows = [{"date": date_str, "region": r, "alpha": float(a)} for r, a in correction.items()]
+    df_new = pd.DataFrame(rows)
+
+    if os.path.exists(ALPHA_HISTORY_FILE):
+        df_old = pd.read_csv(ALPHA_HISTORY_FILE)
+
+        # Remove existing records for the same date (avoid duplicates)
+        df_old = df_old[df_old["date"] != date_str]
+        df_all = pd.concat([df_old, df_new], ignore_index=True)
+    else:
+        df_all = df_new
+
+    df_all.to_csv(ALPHA_HISTORY_FILE, index=False)
 
 # =========================================================
 # UI
 # =========================================================
 
-st.title("🧊 POLAR CUDA – Sea Ice Situational Awareness Gauge")
-st.caption("Fear & Greed–style situational gauge (awareness-only, not operational advice)")
+st.title("🧊 POLAR CUDA – Sea Ice Situational Awareness Gauge (v2.2)")
+st.caption("Fear & Greed–style situational awareness gauge for sea-ice conditions")
 
 with st.expander("⚠️ Mandatory disclaimer (read before use)", expanded=True):
     st.markdown(
@@ -182,6 +215,8 @@ if not ack:
     st.stop()
 
 today = datetime.date.today()
+yesterday = today - datetime.timedelta(days=1)
+
 st.write(f"**Analysis date:** {today}")
 
 # Refresh
@@ -202,12 +237,9 @@ if not (t1 < t2 < t3 < t4):
     st.error("Thresholds must satisfy: Extreme Open < Open < Neutral < Constrained")
     st.stop()
 
-# Correction factors
+# Alpha correction selection
 st.subheader("Hybrid calibration (regional correction α)")
-use_custom_alpha = st.checkbox(
-    "Manually adjust correction factors (advanced users)",
-    value=False
-)
+use_custom_alpha = st.checkbox("Manually adjust correction factors (advanced users)", value=False)
 
 if use_custom_alpha:
     correction = {}
@@ -223,7 +255,10 @@ if use_custom_alpha:
 else:
     correction = DEFAULT_CORRECTION.copy()
 
-# Compute
+# Save alpha history for today (idempotent)
+save_alpha_history(correction, today)
+
+# Compute today values
 arr = load_image()
 
 rows = []
@@ -232,13 +267,7 @@ hybrid_values = []
 for region, roi in REGIONS.items():
     raw, hybrid = compute_hybrid_ice(arr, region, roi, correction, step)
     if hybrid is None:
-        rows.append({
-            "Region": region,
-            "Raw (%)": "N/A",
-            "Hybrid Ice Area (%)": "N/A",
-            "Gauge": "⚪ No data",
-            "Note": ""
-        })
+        rows.append({"Region": region, "Raw (%)": "N/A", "Hybrid Ice Area (%)": "N/A", "Gauge": "⚪ No data", "Note": ""})
         continue
 
     lvl, note = friction_level(hybrid, t1, t2, t3, t4)
@@ -247,13 +276,21 @@ for region, roi in REGIONS.items():
         "Raw (%)": raw,
         "Hybrid Ice Area (%)": hybrid,
         "Gauge": lvl,
-        "Note": note
+        "Note": note,
+        "Alpha (α)": round(float(correction.get(region, 1.0)), 2)
     })
     hybrid_values.append(hybrid)
 
 df = pd.DataFrame(rows)
 
-# Overall gauge
+# Save today's table to local file (for delta comparison)
+TODAY_FILE = f"polar_cuda_{today}.csv"
+YESTERDAY_FILE = f"polar_cuda_{yesterday}.csv"
+df.to_csv(TODAY_FILE, index=False)
+
+# =========================================================
+# OVERALL
+# =========================================================
 st.markdown("---")
 st.subheader("Overall situational gauge (average across regions)")
 
@@ -265,15 +302,38 @@ if hybrid_values:
     with col1:
         st.metric("Overall (Hybrid %)", f"{overall}%")
     with col2:
-        st.write(f"**Overall gauge:** {overall_lvl}  — {overall_note}")
+        st.write(f"**Overall gauge:** {overall_lvl} — {overall_note}")
 
-    # Simple gauge visualization without plotly
-    st.progress(int(overall))  # 0..100
+    st.progress(int(overall))
     st.caption("Progress bar is a visual proxy of Hybrid Ice Area (%).")
 else:
     st.warning("No valid data returned today.")
 
-# Region list
+# =========================================================
+# GROUP AVERAGES
+# =========================================================
+st.markdown("---")
+st.subheader("Regional group averages (Pacific / Atlantic)")
+
+cols = st.columns(len(REGION_GROUPS))
+for i, (group, members) in enumerate(REGION_GROUPS.items()):
+    vals = df[df["Region"].isin(members)]["Hybrid Ice Area (%)"]
+    vals = pd.to_numeric(vals, errors="coerce").dropna()
+    if not vals.empty:
+        avg = round(vals.mean(), 1)
+        lvl, note = friction_level(avg, t1, t2, t3, t4)
+        with cols[i]:
+            st.metric(group, f"{avg}%")
+            st.write(f"{lvl}")
+            st.progress(int(avg))
+    else:
+        with cols[i]:
+            st.metric(group, "N/A")
+            st.write("⚪ No data")
+
+# =========================================================
+# REGIONAL OUTPUTS
+# =========================================================
 st.markdown("---")
 st.subheader("Sea-region situational gauges")
 
@@ -282,21 +342,86 @@ for _, r in df.iterrows():
         val = float(r["Hybrid Ice Area (%)"])
         st.write(
             f"**{r['Region']}** → {r['Gauge']}  |  "
-            f"Hybrid: {r['Hybrid Ice Area (%)']}% (raw {r['Raw (%)']}%)  |  {r['Note']}"
+            f"Hybrid: {r['Hybrid Ice Area (%)']}% (raw {r['Raw (%)']}%)  |  "
+            f"α={r.get('Alpha (α)', 'N/A')}  |  {r['Note']}"
         )
         st.progress(int(val))
     else:
         st.write(f"**{r['Region']}** → {r['Gauge']}")
 
-# Table + download
+# =========================================================
+# YESTERDAY vs TODAY Δ
+# =========================================================
 st.markdown("---")
-st.subheader("Table (downloadable)")
-st.dataframe(df, use_container_width=True)
+st.subheader("Yesterday vs Today Δ (Hybrid Ice Area %)")
 
-csv = df.to_csv(index=False).encode("utf-8-sig")
+if os.path.exists(YESTERDAY_FILE):
+    df_y = pd.read_csv(YESTERDAY_FILE)
+    df_t = df.copy()
+
+    # numeric conversion
+    df_t["Hybrid Ice Area (%)"] = pd.to_numeric(df_t["Hybrid Ice Area (%)"], errors="coerce")
+    df_y["Hybrid Ice Area (%)"] = pd.to_numeric(df_y["Hybrid Ice Area (%)"], errors="coerce")
+
+    delta = df_t.merge(df_y[["Region", "Hybrid Ice Area (%)"]], on="Region", suffixes=("_today", "_yesterday"))
+    delta["Δ Hybrid (%)"] = (delta["Hybrid Ice Area (%)_today"] - delta["Hybrid Ice Area (%)_yesterday"]).round(1)
+
+    # Simple delta label
+    def delta_icon(x):
+        if pd.isna(x):
+            return "⚪"
+        if x >= 5:
+            return "🔺"
+        if x <= -5:
+            return "🔻"
+        return "➖"
+
+    delta["Δ"] = delta["Δ Hybrid (%)"].apply(delta_icon)
+
+    st.dataframe(
+        delta[["Region", "Δ", "Δ Hybrid (%)", "Hybrid Ice Area (%)_yesterday", "Hybrid Ice Area (%)_today"]],
+        use_container_width=True
+    )
+else:
+    st.info("Yesterday's local CSV not found yet. (Run once per day to build history.)")
+
+# =========================================================
+# ALPHA HISTORY + SEASONAL TREND
+# =========================================================
+st.markdown("---")
+st.subheader("α history (saved) and seasonal trend (monthly)")
+
+if os.path.exists(ALPHA_HISTORY_FILE):
+    df_alpha = pd.read_csv(ALPHA_HISTORY_FILE)
+    df_alpha["date"] = pd.to_datetime(df_alpha["date"])
+    df_alpha["month"] = df_alpha["date"].dt.month
+
+    st.caption("Latest α records (most recent first)")
+    st.dataframe(
+        df_alpha.sort_values("date", ascending=False).head(30),
+        use_container_width=True
+    )
+
+    st.caption("Seasonal α trend (monthly mean)")
+    seasonal = (
+        df_alpha.groupby(["region", "month"])["alpha"]
+        .mean()
+        .reset_index()
+        .sort_values(["region", "month"])
+    )
+    st.dataframe(seasonal, use_container_width=True)
+else:
+    st.info("No alpha history yet. It will be created after the first run.")
+
+# =========================================================
+# DOWNLOADS
+# =========================================================
+st.markdown("---")
+st.subheader("Download today's table (CSV)")
+csv_today = df.to_csv(index=False).encode("utf-8-sig")
 st.download_button(
-    "⬇️ Download today’s table (CSV)",
-    data=csv,
+    "⬇️ Download polar_cuda_today.csv",
+    data=csv_today,
     file_name=f"polar_cuda_{today}.csv",
     mime="text/csv"
 )
