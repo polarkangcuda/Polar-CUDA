@@ -1,40 +1,23 @@
 import streamlit as st
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 import requests
 from io import BytesIO
 import datetime
+import pandas as pd
 
 # =========================================================
 # POLAR CUDA – Level 3
-# Sea-Region Navigation Feasibility (Expert-Defined ROIs)
+# "Ice Risk Index" (Fear/Greed style, non-directive)
 # =========================================================
 
-st.set_page_config(layout="wide")
-st.title("🧊 POLAR CUDA – Level 3")
-st.caption("Sea-Region Navigation Feasibility (Expert-Defined, Image-Based)")
-st.caption(f"Analysis date: {datetime.date.today()} (AMSR2 daily PNG)")
+st.set_page_config(page_title="POLAR CUDA – Ice Risk Index", layout="wide")
 
-# ---------------------------------------------------------
-# Load daily AMSR2 PNG (Bremen)
-# ---------------------------------------------------------
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
-
-@st.cache_data(ttl=3600)
-def load_image():
-    r = requests.get(AMSR2_URL, timeout=15)
-    r.raise_for_status()
-    return Image.open(BytesIO(r.content)).convert("RGB")
-
-img = load_image()
-arr = np.array(img)
-h, w, _ = arr.shape
-
-st.image(img, caption="AMSR2 Arctic Sea Ice Concentration (Daily)", use_container_width=True)
+CACHE_TTL_SEC = 3600  # 1 hour
 
 # ---------------------------------------------------------
-# 🔒 Expert-defined ROIs (PIXEL COORDINATES)
-# These MUST match the yellow boxes provided by Dr. Kang
+# Expert-defined fixed ROIs (pixel coordinates on the PNG)
 # Format: (x1, y1, x2, y2)
 # ---------------------------------------------------------
 REGIONS = {
@@ -53,71 +36,178 @@ REGIONS = {
 }
 
 # ---------------------------------------------------------
-# Pixel classification (robust & conservative)
+# Fetch image (daily updated)
 # ---------------------------------------------------------
+@st.cache_data(ttl=CACHE_TTL_SEC)
+def load_amsr2_png():
+    r = requests.get(AMSR2_URL, timeout=20)
+    r.raise_for_status()
+    return Image.open(BytesIO(r.content)).convert("RGB")
+
 def classify_pixel(rgb):
     r, g, b = rgb
-    # Land (bright green)
+
+    # Land: bright green dominance
     if g > 160 and g > r * 1.1 and g > b * 1.1:
         return "land"
-    # Open water (dark blue)
+
+    # Open water: deep/dark blue dominance
     if b > 120 and b > r * 1.1 and b > g * 1.1:
         return "water"
-    # Otherwise ice
+
+    # Everything else: sea ice (any concentration color)
     return "ice"
 
-# ---------------------------------------------------------
-# Assess navigation feasibility per region
-# ---------------------------------------------------------
-def assess_region(roi):
+def compute_region_index(arr, roi, step=3):
+    """
+    Returns:
+      index_0_100: ice-dominance based risk index (0=open ~ 100=ice-dominant)
+      ice_ratio:   ice / (ice+water)
+      water_ratio: water / (ice+water)
+      ocean_n:     counted ocean pixels
+    """
+    h, w, _ = arr.shape
     x1, y1, x2, y2 = roi
+
+    # clamp
+    x1 = max(0, min(x1, w - 1))
+    x2 = max(0, min(x2, w))
+    y1 = max(0, min(y1, h - 1))
+    y2 = max(0, min(y2, h))
+
     ice = water = ocean = 0
 
-    for y in range(y1, min(y2, h), 3):
-        for x in range(x1, min(x2, w), 3):
-            cls = classify_pixel(arr[y, x])
-            if cls == "land":
+    for y in range(y1, y2, step):
+        for x in range(x1, x2, step):
+            c = classify_pixel(arr[y, x])
+            if c == "land":
                 continue
             ocean += 1
-            if cls == "ice":
+            if c == "ice":
                 ice += 1
             else:
                 water += 1
 
     if ocean == 0:
-        return "⚪ No data"
+        return None, 0.0, 0.0, 0
 
     ice_ratio = ice / ocean
+    water_ratio = water / ocean
 
-    if ice_ratio > 0.75:
-        return "🔴 Navigation NOT possible"
-    elif ice_ratio > 0.45:
-        return "🟠 Very high risk"
-    elif ice_ratio > 0.20:
-        return "🟡 Conditional"
-    else:
-        return "🟢 Relatively open"
+    # Polar CUDA Ice Risk Index (0~100)
+    index_0_100 = float(np.clip(ice_ratio * 100.0, 0, 100))
+    return index_0_100, ice_ratio, water_ratio, ocean
 
-# ---------------------------------------------------------
-# Display results (Simple View)
-# ---------------------------------------------------------
-st.markdown("## Sea-Region Navigation Feasibility (Simple View)")
+def label_from_index(idx):
+    # non-directive labels (awareness only)
+    if idx >= 80:
+        return "🔴 Ice-dominant"
+    if idx >= 60:
+        return "🟠 High ice"
+    if idx >= 35:
+        return "🟡 Mixed"
+    return "🟢 More open"
 
+def draw_rois(img, regions):
+    out = img.copy()
+    d = ImageDraw.Draw(out)
+    for name, (x1, y1, x2, y2) in regions.items():
+        d.rectangle([x1, y1, x2, y2], outline=(255, 215, 0), width=3)  # yellow-ish
+    return out
+
+# =========================================================
+# UI
+# =========================================================
+st.title("🧊 POLAR CUDA – Ice Risk Index")
+st.caption("A simple, daily situational-awareness index (Fear/Greed style) for Arctic sea-ice conditions by sea region.")
+
+colA, colB = st.columns([1, 1])
+with colA:
+    analysis_date = datetime.date.today()
+    st.write(f"**Analysis date (local):** {analysis_date}")
+with colB:
+    if st.button("🔄 Refresh now (ignore cache)"):
+        st.cache_data.clear()
+        st.experimental_rerun()
+
+img = load_amsr2_png()
+arr = np.array(img)
+
+# Top: map with yellow ROIs
+st.subheader("Map view (expert-defined fixed ROIs)")
+overlay = draw_rois(img, REGIONS)
+st.image(overlay, use_container_width=True)
+
+# Compute all indices
+rows = []
+valid_indices = []
 for region, roi in REGIONS.items():
-    status = assess_region(roi)
-    st.markdown(f"**{region} → {status}**")
+    idx, ice_r, water_r, ocean_n = compute_region_index(arr, roi, step=3)
+
+    if idx is None:
+        rows.append({
+            "Region": region,
+            "Index (0-100)": None,
+            "Label": "⚪ No ocean pixels",
+            "Ice %": 0.0,
+            "Water %": 0.0,
+            "Ocean samples": 0
+        })
+        continue
+
+    valid_indices.append(idx)
+
+    rows.append({
+        "Region": region,
+        "Index (0-100)": round(idx, 1),
+        "Label": label_from_index(idx),
+        "Ice %": round(ice_r * 100.0, 1),
+        "Water %": round(water_r * 100.0, 1),
+        "Ocean samples": int(ocean_n)
+    })
+
+df = pd.DataFrame(rows)
+
+# Overall index (simple mean of regions)
+if valid_indices:
+    overall = float(np.mean(valid_indices))
+else:
+    overall = None
+
+st.subheader("Today’s Polar CUDA Index (summary)")
+if overall is None:
+    st.error("Unable to compute overall index (no valid ocean pixels).")
+else:
+    st.metric(label="Polar CUDA Index (mean of 12 regions)", value=f"{overall:.1f} / 100", delta=None)
+    st.caption("Interpretation: higher = more ice-dominant across your operational sea regions. This is NOT a routing decision.")
+
+st.subheader("Sea-region index table (simple view)")
+st.dataframe(df, use_container_width=True, hide_index=True)
+
+# Optional: compact list view (like Fear/Greed dashboard)
+st.subheader("Sea-Region Feasibility (very simple list)")
+for _, r in df.iterrows():
+    if pd.isna(r["Index (0-100)"]):
+        st.write(f"**{r['Region']}** → {r['Label']}")
+    else:
+        st.write(f"**{r['Region']}** → {r['Label']}  |  **Index:** {r['Index (0-100)']}  |  Ice {r['Ice %']}% / Water {r['Water %']}%")
 
 # ---------------------------------------------------------
-# Notice
+# Legal / methodology notice
 # ---------------------------------------------------------
 st.markdown("---")
 st.caption(
-    """
-Data source: University of Bremen AMSR2 daily sea-ice concentration PNG.  
-Sea regions are **expert-defined operational sectors**, manually aligned to the
-displayed image and **non-authoritative**.  
+    f"""
+**Data source**: University of Bremen AMSR2 daily sea-ice concentration PNG  
+(Arctic_AMSR2_nic.png; publicly accessible daily image).  
 
-This tool provides **situational awareness only** and must not replace official
-ice services, navigational charts, or operational decision systems.
+**Method**: This app computes a simple **image-derived ice-dominance ratio** within
+**expert-defined fixed ROIs** (yellow boxes) and expresses it as an **Index (0–100)**.  
+0 ≈ more open-water dominant; 100 ≈ more ice-dominant.  
+
+**Non-authoritative / Non-directive notice**:  
+This output is **situational awareness only** and is **not** an ice-routing service,
+not an official ice chart, and not a navigational decision system.  
+Final operational decisions and liabilities remain with operators and vessel masters.
 """
 )
