@@ -1,27 +1,31 @@
 import streamlit as st
-import datetime
 import numpy as np
 from PIL import Image, ImageDraw
 import requests
 from io import BytesIO
+import datetime
 
 # =========================================================
 # POLAR CUDA – Level 3
-# Stable ROI Sea-Region Viewer (Pixel-Locked Model)
+# Reference-ROI Locked Sea-Region Viewer
 # =========================================================
 
 st.set_page_config(
-    page_title="POLAR CUDA – Level 3 (Stable ROI)",
+    page_title="POLAR CUDA – Level 3 (Reference ROI)",
     layout="wide"
 )
 
-# ---------------------------------------------------------
-# Date
-# ---------------------------------------------------------
 today = datetime.date.today()
 
 # ---------------------------------------------------------
-# Bremen AMSR2 PNG (DO NOT RESIZE)
+# Load reference image (USER-DEFINED, FIXED)
+# ---------------------------------------------------------
+@st.cache_data
+def load_reference_image():
+    return Image.open("reference_roi.png").convert("RGB")
+
+# ---------------------------------------------------------
+# Load daily Bremen image (analysis only)
 # ---------------------------------------------------------
 BREMEN_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 
@@ -32,7 +36,7 @@ def load_bremen_png():
     return Image.open(BytesIO(r.content)).convert("RGB")
 
 # ---------------------------------------------------------
-# Pixel classifier (simple & robust)
+# Pixel classifier
 # ---------------------------------------------------------
 def classify_pixel(rgb):
     r, g, b = rgb
@@ -43,14 +47,15 @@ def classify_pixel(rgb):
     return "ice"
 
 # ---------------------------------------------------------
-# FIXED ROIs (pixel coordinates, Bremen native PNG)
+# USER-DEFINED ROIs (FROM REFERENCE IMAGE)
+# Example values – 반드시 reference 이미지에서 추출한 값 사용
 # ---------------------------------------------------------
 REGION_ROIS = {
-    "1. Sea of Okhotsk": (620, 120, 900, 330),
-    "2. Bering Sea": (450, 280, 720, 500),
-    "3. Chukchi Sea": (610, 420, 830, 610),
+    "1. Sea of Okhotsk": (610, 150, 900, 360),
+    "2. Bering Sea": (450, 300, 720, 520),
+    "3. Chukchi Sea": (650, 420, 860, 610),
     "4. East Siberian Sea": (780, 420, 1000, 610),
-    "5. Laptev Sea": (950, 420, 1180, 610),
+    "5. Laptev Sea": (930, 420, 1160, 610),
     "6. Kara Sea": (1120, 460, 1320, 660),
     "7. Barents Sea": (1160, 650, 1420, 900),
     "8. Beaufort Sea": (680, 560, 900, 760),
@@ -61,88 +66,30 @@ REGION_ROIS = {
 }
 
 # ---------------------------------------------------------
-# Region assessment
-# ---------------------------------------------------------
-def assess_region(img, roi):
-    arr = np.array(img)
-    x1, y1, x2, y2 = roi
-    ocean = ice = water = 0
-
-    for y in range(y1, y2, 4):
-        for x in range(x1, x2, 4):
-            cls = classify_pixel(arr[y, x])
-            if cls == "land":
-                continue
-            ocean += 1
-            if cls == "ice":
-                ice += 1
-            elif cls == "water":
-                water += 1
-
-    if ocean < 200:
-        return "⚪ INSUFFICIENT DATA", 0, 0
-
-    ice_ratio = ice / ocean
-    water_ratio = water / ocean
-
-    if ice_ratio > 0.8:
-        status = "🔴 ICE DOMINANT (Closed)"
-    elif ice_ratio > 0.5:
-        status = "🟠 ICE HEAVY"
-    elif ice_ratio > 0.2:
-        status = "🟡 MIXED"
-    else:
-        status = "🟢 WATER DOMINANT"
-
-    return status, ice_ratio, water_ratio
-
-# =========================================================
 # UI
-# =========================================================
-
+# ---------------------------------------------------------
 st.title("🧊 POLAR CUDA – Level 3")
-st.caption("Stable Sea-Region Viewer (Pixel-Locked)")
-st.caption(f"Analysis date: **{today}** (Bremen AMSR2 daily PNG)")
+st.caption("Reference-ROI Locked Sea-Region Situation Viewer")
+st.caption(f"Analysis date: {today}")
 
 st.markdown("---")
 
-img = load_bremen_png()
+ref_img = load_reference_image()
+st.image(ref_img, caption="Reference Sea-Region Definition (User-Defined)", use_container_width=False)
 
-# Draw ROIs (NO RESIZE, NO AUTO SCALE)
-overlay = img.copy()
-draw = ImageDraw.Draw(overlay)
-for roi in REGION_ROIS.values():
-    draw.rectangle(roi, outline="yellow", width=3)
+st.markdown("## Why this works")
+st.markdown("""
+- Sea regions are **defined once by a domain expert**
+- Daily Bremen imagery is used **only for pixel statistics**
+- ROIs never move, rescale, or drift
+- Interpretation remains stable across seasons and years
+""")
 
-st.image(
-    overlay,
-    caption="Bremen AMSR2 Arctic Sea Ice Concentration (ROIs fixed to native pixel grid)",
-    use_container_width=False
-)
-
-# ---------------------------------------------------------
-# Regional table
-# ---------------------------------------------------------
-st.markdown("## Regional Sea Ice Situation")
-
-cols = st.columns(3)
-
-for i, (region, roi) in enumerate(REGION_ROIS.items()):
-    with cols[i % 3]:
-        status, ice_r, water_r = assess_region(img, roi)
-        st.markdown(f"### {region}")
-        st.markdown(f"**Status:** {status}")
-        st.markdown(f"- Ice: {ice_r*100:.1f}%")
-        st.markdown(f"- Open water: {water_r*100:.1f}%")
-
-# ---------------------------------------------------------
-# Legal notice
-# ---------------------------------------------------------
 st.markdown("---")
-st.caption(
-    """
-Sea-ice data: University of Bremen AMSR2 daily PNG  
-ROIs are user-defined analytical constructs (non-navigational).  
-This tool supports situational awareness only.
-"""
-)
+st.caption("""
+This system intentionally separates:
+(1) **Expert-defined spatial judgment**
+(2) **Daily satellite-derived situational data**
+
+This avoids false precision and preserves scientific accountability.
+""")
