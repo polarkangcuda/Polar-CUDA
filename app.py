@@ -7,8 +7,14 @@ import datetime
 import pandas as pd
 
 # =========================================================
-# POLAR CUDA – Ice Risk Index
-# Daily situational awareness (non-directive)
+# POLAR CUDA (Cryospheric Uncertainty & Decision Awareness)
+# POLAR CUDA Index
+#
+# “This index is designed for decision awareness,
+#  not decision-making.”
+#
+# A daily situational awareness index
+# for Arctic sea-ice conditions.
 # =========================================================
 
 st.set_page_config(
@@ -16,6 +22,9 @@ st.set_page_config(
     layout="centered"
 )
 
+# ---------------------------------------------------------
+# Data source
+# ---------------------------------------------------------
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 CACHE_TTL = 3600  # seconds
 
@@ -38,7 +47,7 @@ REGIONS = {
 }
 
 # ---------------------------------------------------------
-# Load AMSR2 image (safe)
+# Load AMSR2 image (safe & cached)
 # ---------------------------------------------------------
 @st.cache_data(ttl=CACHE_TTL)
 def load_image_safe():
@@ -48,7 +57,7 @@ def load_image_safe():
     return np.array(img)
 
 # ---------------------------------------------------------
-# Simple pixel classifier (robust & conservative)
+# Simple & conservative pixel classifier
 # ---------------------------------------------------------
 def classify_pixel(rgb):
     r, g, b = rgb
@@ -58,6 +67,9 @@ def classify_pixel(rgb):
         return "water"
     return "ice"
 
+# ---------------------------------------------------------
+# Ice dominance index (0–100)
+# ---------------------------------------------------------
 def compute_index(arr, roi, step=4):
     x1, y1, x2, y2 = roi
     ice = ocean = 0
@@ -80,6 +92,9 @@ def compute_index(arr, roi, step=4):
 
     return round((ice / ocean) * 100, 1)
 
+# ---------------------------------------------------------
+# Index label (simple, intuitive)
+# ---------------------------------------------------------
 def label(idx):
     if idx >= 80:
         return "🔴 Ice-dominant"
@@ -94,15 +109,25 @@ def label(idx):
 # =========================================================
 
 st.title("🧊 POLAR CUDA – Ice Risk Index")
-st.caption("Daily Arctic sea-ice awareness index (non-directive)")
+st.markdown(
+    "**POLAR CUDA (Cryospheric Uncertainty & Decision Awareness)**  \n"
+    "*This index is designed for decision awareness, not decision-making.*"
+)
 
 today = datetime.date.today()
+st.caption(
+    "A daily situational awareness index for Arctic sea-ice conditions."
+)
 st.write(f"**Analysis date:** {today}")
 
+# Refresh (safe)
 if st.button("🔄 Refresh"):
     st.cache_data.clear()
     st.rerun()
 
+# ---------------------------------------------------------
+# Compute indices
+# ---------------------------------------------------------
 arr = load_image_safe()
 
 results = []
@@ -126,16 +151,20 @@ for region, roi in REGIONS.items():
 
 df = pd.DataFrame(results)
 
-# Overall index
+# ---------------------------------------------------------
+# Overall Polar CUDA Index
+# ---------------------------------------------------------
 if indices:
     overall = round(sum(indices) / len(indices), 1)
-    st.metric("Polar CUDA Index (overall)", f"{overall} / 100")
+    st.metric("POLAR CUDA Index (overall)", f"{overall} / 100")
 
 st.markdown("---")
 st.subheader("Sea-Region Ice Risk (Simple View)")
 
 for _, r in df.iterrows():
-    st.write(f"**{r['Region']}** → {r['Status']}  |  Index: {r['Index']}")
+    st.write(
+        f"**{r['Region']}** → {r['Status']}  |  Index: {r['Index']}"
+    )
 
 st.markdown("---")
 st.caption(
@@ -143,9 +172,9 @@ st.caption(
 **Data source**: University of Bremen AMSR2 daily sea-ice concentration PNG.
 
 This index reflects **relative ice dominance** within expert-defined Arctic sea regions.
-It is designed for **situational awareness**, similar to a market sentiment index.
+It is designed for **decision awareness**, similar to a market sentiment index.
 
-⚠️ This tool does **not** indicate navigability, routing feasibility,
-or replace official ice services or operational decision systems.
+⚠ This tool does **not** indicate navigability, routing feasibility,
+or replace official ice services, ice charts, or operational decision systems.
 """
 )
