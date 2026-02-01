@@ -12,16 +12,24 @@ import pandas as pd
 #
 # “This index is designed for decision awareness,
 #  not decision-making.”
-# A daily situational awareness index for Arctic sea-ice conditions.
+#
+# A daily situational awareness index
+# for Arctic sea-ice conditions.
 # =========================================================
 
-st.set_page_config(page_title="POLAR CUDA – Ice Risk Index", layout="centered")
+st.set_page_config(
+    page_title="POLAR CUDA – Ice Risk Index",
+    layout="centered"
+)
 
+# ---------------------------------------------------------
+# Data source
+# ---------------------------------------------------------
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 CACHE_TTL = 3600  # seconds
 
 # ---------------------------------------------------------
-# Fixed ROIs (pixel coordinates)
+# Expert-defined fixed ROIs (pixel coordinates, stable)
 # ---------------------------------------------------------
 REGIONS = {
     "Sea of Okhotsk": (620, 90, 900, 330),
@@ -39,95 +47,54 @@ REGIONS = {
 }
 
 # ---------------------------------------------------------
-# Load AMSR2 image
+# Load AMSR2 image (safe & cached)
 # ---------------------------------------------------------
 @st.cache_data(ttl=CACHE_TTL)
 def load_image_safe():
-    r = requests.get(AMSR2_URL, timeout=30)
+    r = requests.get(AMSR2_URL, timeout=20)
     r.raise_for_status()
     img = Image.open(BytesIO(r.content)).convert("RGB")
     return np.array(img)
 
 # ---------------------------------------------------------
-# Minimal k-means (RGB, no sklearn)
+# Simple & conservative pixel classifier
 # ---------------------------------------------------------
-def kmeans_rgb(points, k=3, iters=12, seed=7):
-    if len(points) < k:
-        return None, None
-
-    rng = np.random.default_rng(seed)
-    centers = points[rng.choice(len(points), size=k, replace=False)].copy()
-
-    for _ in range(iters):
-        d2 = ((points[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)
-        labels = d2.argmin(axis=1)
-
-        new_centers = centers.copy()
-        for i in range(k):
-            mask = labels == i
-            if mask.any():
-                new_centers[i] = points[mask].mean(axis=0)
-
-        if np.allclose(new_centers, centers, atol=1.0):
-            break
-        centers = new_centers
-
-    return centers, labels
-
-def pick_land_water_ice_clusters(centers):
-    g = centers[:, 1]
-    land = int(np.argmax(g))
-
-    score_water = centers[:, 2] - 0.6 * centers[:, 1]
-    water = int(np.argmax(score_water))
-    if water == land:
-        water = int(np.argsort(score_water)[-2])
-
-    ice = [i for i in range(3) if i not in (land, water)][0]
-    return land, water, ice
+def classify_pixel(rgb):
+    r, g, b = rgb
+    if g > 160 and g > r * 1.1 and g > b * 1.1:
+        return "land"
+    if b > 120 and b > r * 1.1 and b > g * 1.1:
+        return "water"
+    return "ice"
 
 # ---------------------------------------------------------
-# Human-eye based ice area index
-# (Beaufort Sea only: local correction)
+# Ice dominance index (0–100)
 # ---------------------------------------------------------
-def compute_ice_area_index(arr, roi, region_name, step=3):
+def compute_index(arr, roi, step=4):
     x1, y1, x2, y2 = roi
+    ice = ocean = 0
+
     h, w, _ = arr.shape
+    x1, x2 = max(0, x1), min(w - 1, x2)
+    y1, y2 = max(0, y1), min(h - 1, y2)
 
-    x1 = max(0, min(w - 1, x1))
-    x2 = max(0, min(w, x2))
-    y1 = max(0, min(h - 1, y1))
-    y2 = max(0, min(h, y2))
+    for y in range(y1, y2, step):
+        for x in range(x1, x2, step):
+            c = classify_pixel(arr[y, x])
+            if c == "land":
+                continue
+            ocean += 1
+            if c == "ice":
+                ice += 1
 
-    if x2 <= x1 + 5 or y2 <= y1 + 5:
+    if ocean == 0:
         return None
 
-    pts = arr[y1:y2:step, x1:x2:step].reshape(-1, 3).astype(np.float32)
-    if pts.shape[0] < 100:
-        return None
+    return round((ice / ocean) * 100, 1)
 
-    centers, labels = kmeans_rgb(pts)
-    if centers is None:
-        return None
-
-    land_c, water_c, ice_c = pick_land_water_ice_clusters(centers)
-
-    water_n = np.sum(labels == water_c)
-    ice_n = np.sum(labels == ice_c)
-    sea_n = water_n + ice_n
-
-    if sea_n == 0:
-        return None
-
-    ice_ratio = ice_n / sea_n
-    idx = round(ice_ratio * 100.0, 1)
-
-    # 🔧 Beaufort Sea ONLY – human-eye correction
-    if region_name == "Beaufort Sea" and ice_ratio >= 0.5:
-        idx = 100.0
-
-    return idx
-
+# ---------------------------------------------------------
+# Index label (simple, intuitive)
+# ---------------------------------------------------------
 def label(idx):
     if idx >= 80:
         return "🔴 Ice-dominant"
@@ -144,52 +111,70 @@ def label(idx):
 st.title("🧊 POLAR CUDA – Ice Risk Index")
 st.markdown(
     "**POLAR CUDA (Cryospheric Uncertainty & Decision Awareness)**  \n"
-    "“This index is designed for decision awareness, not decision-making.”  \n"
-    "*Daily situational awareness for Arctic sea-ice conditions*"
+    "*This index is designed for decision awareness, not decision-making.*"
 )
 
 today = datetime.date.today()
+st.caption(
+    "A daily situational awareness index for Arctic sea-ice conditions."
+)
 st.write(f"**Analysis date:** {today}")
 
+# Refresh (safe)
 if st.button("🔄 Refresh"):
     st.cache_data.clear()
     st.rerun()
 
+# ---------------------------------------------------------
+# Compute indices
+# ---------------------------------------------------------
 arr = load_image_safe()
 
 results = []
 indices = []
 
 for region, roi in REGIONS.items():
-    idx = compute_ice_area_index(arr, roi, region)
-    if idx is None:
-        results.append({"Region": region, "Index": "N/A", "Status": "⚪ No data"})
-    else:
+    idx = compute_index(arr, roi)
+    if idx is not None:
         indices.append(idx)
-        results.append({"Region": region, "Index": idx, "Status": label(idx)})
+        results.append({
+            "Region": region,
+            "Index": idx,
+            "Status": label(idx)
+        })
+    else:
+        results.append({
+            "Region": region,
+            "Index": "N/A",
+            "Status": "⚪ No data"
+        })
 
 df = pd.DataFrame(results)
 
+# ---------------------------------------------------------
+# Overall Polar CUDA Index
+# ---------------------------------------------------------
 if indices:
     overall = round(sum(indices) / len(indices), 1)
     st.metric("POLAR CUDA Index (overall)", f"{overall} / 100")
 
 st.markdown("---")
-st.subheader("Sea-Region Ice Risk (Human-eye based)")
+st.subheader("Sea-Region Ice Risk (Simple View)")
 
 for _, r in df.iterrows():
-    st.write(f"**{r['Region']}** → {r['Status']}  |  Index: {r['Index']}")
+    st.write(
+        f"**{r['Region']}** → {r['Status']}  |  Index: {r['Index']}"
+    )
 
 st.markdown("---")
 st.caption(
     """
 **Data source**: University of Bremen AMSR2 daily sea-ice concentration PNG.
 
-This index reflects **human-eye-equivalent sea-ice area dominance**
-within your fixed operational ROIs.
+This index reflects **relative ice dominance** within expert-defined Arctic sea regions.
+It is designed for **decision awareness**, similar to a market sentiment index.
 
-⚠ This tool provides **decision awareness only**.
-It does **not** indicate navigability, routing feasibility,
-or replace official ice charts or operational decision systems.
+⚠ This tool does **not** indicate navigability, routing feasibility,
+or replace official ice services, ice charts, or operational decision systems.
 """
 )
