@@ -7,28 +7,27 @@ import datetime
 import pandas as pd
 
 # =========================================================
-# POLAR CUDA (Cryospheric Uncertainty & Decision Awareness)
+# POLAR CUDA v2.0
+# Hybrid Ice Area Index
 #
-# Human-vision–aligned daily situational awareness index
-# for Arctic sea-ice conditions.
+# Satellite color signal × Human visual correction
 #
-# This index is designed for decision awareness,
-# not decision-making.
+# “Designed for decision awareness, not decision-making”
 # =========================================================
 
 st.set_page_config(
-    page_title="POLAR CUDA – Ice Risk Index",
+    page_title="POLAR CUDA – Hybrid Ice Area Index",
     layout="centered"
 )
 
 # ---------------------------------------------------------
-# Data source (daily updated)
+# Data source
 # ---------------------------------------------------------
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
-CACHE_TTL = 3600  # seconds
+CACHE_TTL = 3600
 
 # ---------------------------------------------------------
-# Expert-defined fixed ROIs (pixel coordinates)
+# Fixed ROIs (expert-defined)
 # ---------------------------------------------------------
 REGIONS = {
     "Sea of Okhotsk": (620, 90, 900, 330),
@@ -46,44 +45,55 @@ REGIONS = {
 }
 
 # ---------------------------------------------------------
-# Load AMSR2 image (cached & safe)
+# Human visual correction factors (α)
+# Derived from Dr. Kang’s visual judgement
+# ---------------------------------------------------------
+CORRECTION = {
+    "Sea of Okhotsk": 0.55,
+    "Bering Sea": 0.45,
+    "Chukchi Sea": 1.55,
+    "East Siberian Sea": 1.00,
+    "Laptev Sea": 1.00,
+    "Kara Sea": 0.90,
+    "Barents Sea": 0.35,
+    "Beaufort Sea": 1.75,
+    "Canadian Arctic Archipelago": 1.40,
+    "Central Arctic Ocean": 1.00,
+    "Greenland Sea": 0.75,
+    "Baffin Bay": 0.80,
+}
+
+# ---------------------------------------------------------
+# Load image
 # ---------------------------------------------------------
 @st.cache_data(ttl=CACHE_TTL)
-def load_image_safe():
+def load_image():
     r = requests.get(AMSR2_URL, timeout=20)
     r.raise_for_status()
     img = Image.open(BytesIO(r.content)).convert("RGB")
     return np.array(img)
 
 # ---------------------------------------------------------
-# Pixel classifier (KEY FIX)
-#
-# Visual logic:
-#  - Bright green            → land
-#  - Any blue-dominant color → water
-#  - Everything else         → ice
+# Pixel classifier (visual logic)
 # ---------------------------------------------------------
 def classify_pixel(rgb):
     r, g, b = rgb
 
-    # LAND (bright green)
+    # LAND
     if g > 160 and g > r * 1.15 and g > b * 1.15:
         return "land"
 
-    # WATER (all blue-dominant tones: dark, light, cyan)
+    # WATER (all blue-dominant tones)
     if b > r and b > g:
         return "water"
 
-    # ICE (pink / purple / yellow / red / white tones)
+    # ICE
     return "ice"
 
 # ---------------------------------------------------------
-# Ice area percentage (human-vision aligned)
-#
-# denominator = ice + water (land excluded)
-# numerator   = ice
+# Raw ice percentage (satellite signal)
 # ---------------------------------------------------------
-def compute_ice_area_percent(arr, roi, step=4):
+def compute_raw_ice(arr, roi, step=4):
     x1, y1, x2, y2 = roi
     ice = water = 0
 
@@ -94,10 +104,9 @@ def compute_ice_area_percent(arr, roi, step=4):
     for y in range(y1, y2, step):
         for x in range(x1, x2, step):
             c = classify_pixel(arr[y, x])
-
             if c == "land":
                 continue
-            elif c == "ice":
+            if c == "ice":
                 ice += 1
             else:
                 water += 1
@@ -105,17 +114,33 @@ def compute_ice_area_percent(arr, roi, step=4):
     if ice + water == 0:
         return None
 
-    return round((ice / (ice + water)) * 100, 1)
+    return (ice / (ice + water)) * 100
 
 # ---------------------------------------------------------
-# Index label (intuitive, non-operational)
+# Hybrid ice area (human-corrected)
 # ---------------------------------------------------------
-def label(idx):
-    if idx >= 90:
+def compute_hybrid_ice(arr, region, roi):
+    raw = compute_raw_ice(arr, roi)
+    if raw is None:
+        return None, None
+
+    alpha = CORRECTION.get(region, 1.0)
+    corrected = raw * alpha
+
+    # Clamp to 0–100
+    corrected = max(0, min(100, corrected))
+
+    return round(raw, 1), round(corrected, 1)
+
+# ---------------------------------------------------------
+# Label
+# ---------------------------------------------------------
+def label(val):
+    if val >= 90:
         return "🔴 Ice-dominant"
-    if idx >= 70:
+    if val >= 70:
         return "🟠 High ice"
-    if idx >= 40:
+    if val >= 40:
         return "🟡 Mixed"
     return "🟢 More open"
 
@@ -123,71 +148,57 @@ def label(idx):
 # UI
 # =========================================================
 
-st.title("🧊 POLAR CUDA – Ice Risk Index")
+st.title("🧊 POLAR CUDA – Hybrid Ice Area Index")
 st.markdown(
-    "**POLAR CUDA (Cryospheric Uncertainty & Decision Awareness)**  \n"
-    "*This index is designed for decision awareness, not decision-making.*"
+    "**Satellite signal × Human judgement**  \n"
+    "*Designed for decision awareness, not decision-making.*"
 )
 
-today = datetime.date.today()
-st.caption("Daily situational awareness for Arctic sea-ice conditions.")
-st.write(f"**Analysis date:** {today}")
+st.write(f"**Analysis date:** {datetime.date.today()}")
 
-# Refresh button
 if st.button("🔄 Refresh"):
     st.cache_data.clear()
     st.rerun()
 
-# ---------------------------------------------------------
-# Compute indices
-# ---------------------------------------------------------
-arr = load_image_safe()
+arr = load_image()
 
-results = []
-indices = []
+rows = []
+final_values = []
 
 for region, roi in REGIONS.items():
-    idx = compute_ice_area_percent(arr, roi)
-    if idx is not None:
-        indices.append(idx)
-        results.append({
+    raw, hybrid = compute_hybrid_ice(arr, region, roi)
+    if hybrid is not None:
+        final_values.append(hybrid)
+        rows.append({
             "Region": region,
-            "Ice Area (%)": idx,
-            "Status": label(idx)
-        })
-    else:
-        results.append({
-            "Region": region,
-            "Ice Area (%)": "N/A",
-            "Status": "⚪ No data"
+            "Raw (%)": raw,
+            "Hybrid Ice Area (%)": hybrid,
+            "Status": label(hybrid)
         })
 
-df = pd.DataFrame(results)
+df = pd.DataFrame(rows)
 
-# ---------------------------------------------------------
-# Overall POLAR CUDA Index
-# ---------------------------------------------------------
-if indices:
-    overall = round(sum(indices) / len(indices), 1)
-    st.metric("POLAR CUDA Index (overall)", f"{overall} / 100")
+if final_values:
+    overall = round(sum(final_values) / len(final_values), 1)
+    st.metric("POLAR CUDA (Hybrid, overall)", f"{overall} / 100")
 
 st.markdown("---")
-st.subheader("Sea-Region Ice Status (Visual Interpretation)")
+st.subheader("Sea-Region Hybrid Ice Area (%)")
 
 for _, r in df.iterrows():
     st.write(
-        f"**{r['Region']}** → {r['Status']}  |  Ice area: {r['Ice Area (%)']} %"
+        f"**{r['Region']}** → {r['Status']}  |  "
+        f"Hybrid: {r['Hybrid Ice Area (%)']} % "
+        f"(raw {r['Raw (%)']} %)"
     )
 
 st.markdown("---")
 st.caption(
     """
-**Data source**: University of Bremen AMSR2 daily sea-ice concentration PNG.
+**POLAR CUDA v2.0**  
+This hybrid index approximates **visual ice-covered area (%)**
+by combining satellite color signals with expert human judgement.
 
-This index reflects **human-vision–aligned ice dominance**
-within expert-defined Arctic sea regions.
-
-⚠ This tool does **not** indicate navigability, routing feasibility,
-or replace official ice services, ice charts, or operational decision systems.
+⚠ Not for navigation or operational use.
 """
 )
