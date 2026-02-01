@@ -5,30 +5,24 @@ from PIL import Image
 from io import BytesIO
 import datetime
 import pandas as pd
+import plotly.graph_objects as go
 
 # =========================================================
-# POLAR CUDA v2.0
-# Hybrid Ice Area Index
-#
-# Satellite color signal × Human visual correction
-#
-# “Designed for decision awareness, not decision-making”
+# POLAR CUDA – Sea Ice Situational Awareness Gauge
+# ---------------------------------------------------------
+# IMPORTANT:
+# - Not a navigation tool
+# - Not an ice chart
+# - Not routing/feasibility advice
+# - Decision responsibility remains with the user/operator
 # =========================================================
 
-st.set_page_config(
-    page_title="POLAR CUDA – Hybrid Ice Area Index",
-    layout="centered"
-)
+st.set_page_config(page_title="POLAR CUDA – Sea Ice Gauge", layout="centered")
 
-# ---------------------------------------------------------
-# Data source
-# ---------------------------------------------------------
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 CACHE_TTL = 3600
 
-# ---------------------------------------------------------
-# Fixed ROIs (expert-defined)
-# ---------------------------------------------------------
+# Expert-defined fixed ROIs (pixel coordinates)
 REGIONS = {
     "Sea of Okhotsk": (620, 90, 900, 330),
     "Bering Sea": (480, 300, 720, 520),
@@ -44,11 +38,8 @@ REGIONS = {
     "Baffin Bay": (760, 740, 980, 980),
 }
 
-# ---------------------------------------------------------
-# Human visual correction factors (α)
-# Derived from Dr. Kang’s visual judgement
-# ---------------------------------------------------------
-CORRECTION = {
+# Human visual correction factors (α) – can be tuned
+DEFAULT_CORRECTION = {
     "Sea of Okhotsk": 0.55,
     "Bering Sea": 0.45,
     "Chukchi Sea": 1.55,
@@ -63,9 +54,6 @@ CORRECTION = {
     "Baffin Bay": 0.80,
 }
 
-# ---------------------------------------------------------
-# Load image
-# ---------------------------------------------------------
 @st.cache_data(ttl=CACHE_TTL)
 def load_image():
     r = requests.get(AMSR2_URL, timeout=20)
@@ -73,26 +61,21 @@ def load_image():
     img = Image.open(BytesIO(r.content)).convert("RGB")
     return np.array(img)
 
-# ---------------------------------------------------------
-# Pixel classifier (visual logic)
-# ---------------------------------------------------------
+# Visual classifier (simple)
 def classify_pixel(rgb):
     r, g, b = rgb
 
-    # LAND
+    # LAND: vivid green
     if g > 160 and g > r * 1.15 and g > b * 1.15:
         return "land"
 
-    # WATER (all blue-dominant tones)
+    # WATER: blue-dominant tones
     if b > r and b > g:
         return "water"
 
-    # ICE
+    # ICE: everything else (pink/purple/yellow/red/white)
     return "ice"
 
-# ---------------------------------------------------------
-# Raw ice percentage (satellite signal)
-# ---------------------------------------------------------
 def compute_raw_ice(arr, roi, step=4):
     x1, y1, x2, y2 = roi
     ice = water = 0
@@ -113,92 +96,193 @@ def compute_raw_ice(arr, roi, step=4):
 
     if ice + water == 0:
         return None
+    return (ice / (ice + water)) * 100.0
 
-    return (ice / (ice + water)) * 100
+def clamp_0_100(x: float) -> float:
+    return max(0.0, min(100.0, x))
 
-# ---------------------------------------------------------
-# Hybrid ice area (human-corrected)
-# ---------------------------------------------------------
-def compute_hybrid_ice(arr, region, roi):
-    raw = compute_raw_ice(arr, roi)
+def compute_hybrid_ice(arr, region, roi, correction, step=4):
+    raw = compute_raw_ice(arr, roi, step=step)
     if raw is None:
         return None, None
-
-    alpha = CORRECTION.get(region, 1.0)
-    corrected = raw * alpha
-
-    # Clamp to 0–100
-    corrected = max(0, min(100, corrected))
-
-    return round(raw, 1), round(corrected, 1)
+    alpha = correction.get(region, 1.0)
+    hybrid = clamp_0_100(raw * alpha)
+    return round(raw, 1), round(hybrid, 1)
 
 # ---------------------------------------------------------
-# Label
+# Gauge mapping (Fear & Greed style)
+# We avoid "navigable/non-navigable" language.
+# Instead: Operational Friction (how constrained it "looks")
 # ---------------------------------------------------------
-def label(val):
-    if val >= 90:
-        return "🔴 Ice-dominant"
-    if val >= 70:
-        return "🟠 High ice"
-    if val >= 40:
-        return "🟡 Mixed"
-    return "🟢 More open"
+def friction_label_from_ice(ice_pct: float, bands: dict):
+    """
+    ice_pct: Hybrid ice area (%) 0..100
+    bands example (ascending):
+        {"Extreme Open": 15, "Open": 35, "Neutral": 60, "Constrained": 85}
+    returns 5-level label
+    """
+    t1 = bands["Extreme Open"]
+    t2 = bands["Open"]
+    t3 = bands["Neutral"]
+    t4 = bands["Constrained"]
+
+    # Low ice -> more open (less friction)
+    if ice_pct <= t1:
+        return "Extreme Open", "🟢"
+    if ice_pct <= t2:
+        return "Open", "🟩"
+    if ice_pct <= t3:
+        return "Neutral", "🟡"
+    if ice_pct <= t4:
+        return "Constrained", "🟠"
+    return "Extreme Constrained", "🔴"
+
+def make_gauge(title: str, value: float):
+    # Plotly indicator gauge; neutral wording.
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=value,
+        number={"suffix": "%"},
+        title={"text": title},
+        gauge={
+            "axis": {"range": [0, 100]},
+            "bar": {"color": "white"},
+        }
+    ))
+    fig.update_layout(height=220, margin=dict(l=20, r=20, t=50, b=10))
+    return fig
 
 # =========================================================
 # UI
 # =========================================================
 
-st.title("🧊 POLAR CUDA – Hybrid Ice Area Index")
-st.markdown(
-    "**Satellite signal × Human judgement**  \n"
-    "*Designed for decision awareness, not decision-making.*"
-)
+st.title("🧊 POLAR CUDA – Sea Ice Situational Awareness Gauge")
+st.caption("A daily, visual-proxy gauge for sea-ice situation awareness (not operational advice).")
 
-st.write(f"**Analysis date:** {datetime.date.today()}")
+with st.expander("⚠️ Important disclaimer (please read)", expanded=True):
+    st.markdown(
+        """
+**This application is NOT an ice navigation product.**  
+It does **not** provide routing advice, navigability judgments, or operational clearance.
 
-if st.button("🔄 Refresh"):
-    st.cache_data.clear()
-    st.rerun()
+- Data are derived from a **daily PNG visualization** (University of Bremen AMSR2).
+- Calculations are **approximate** and **human-vision–aligned**, not a validated geophysical area product.
+- Use of this gauge is for **situational awareness only**.
+- **All operational decisions** (route planning, speed, ice class, escort, insurance, regulatory compliance, safety)  
+  must be made by the responsible operator using official ice services, ice charts, and professional expertise.
+        """
+    )
 
+ack = st.checkbox("I understand. Show situational awareness outputs (not operational advice).", value=False)
+if not ack:
+    st.stop()
+
+today = datetime.date.today()
+st.write(f"**Analysis date:** {today}")
+
+colA, colB = st.columns(2)
+
+with colA:
+    step = st.slider("Sampling step (speed vs detail)", min_value=2, max_value=12, value=4, step=1)
+with colB:
+    st.button("🔄 Refresh (clear cache)", on_click=lambda: st.cache_data.clear())
+
+# Gauge thresholds (tunable)
+st.subheader("Gauge settings (tunable thresholds)")
+st.caption("These thresholds map Hybrid Ice Area (%) to a 5-level situational gauge (Fear & Greed style).")
+
+t_ext_open = st.slider("Extreme Open ≤", 0, 40, 15, 1)
+t_open = st.slider("Open ≤", 10, 60, 35, 1)
+t_neutral = st.slider("Neutral ≤", 20, 80, 60, 1)
+t_constrained = st.slider("Constrained ≤", 40, 95, 85, 1)
+
+# Ensure monotonic (simple safeguard)
+if not (t_ext_open < t_open < t_neutral < t_constrained):
+    st.error("Thresholds must satisfy: Extreme Open < Open < Neutral < Constrained.")
+    st.stop()
+
+bands = {
+    "Extreme Open": t_ext_open,
+    "Open": t_open,
+    "Neutral": t_neutral,
+    "Constrained": t_constrained
+}
+
+# Correction factors editor (optional)
+st.subheader("Hybrid calibration (regional correction α)")
+st.caption("These α values align satellite color-signal to your visual judgement. You can tune them anytime.")
+
+correction = {}
+with st.expander("Edit correction factors (advanced)", expanded=False):
+    for k in DEFAULT_CORRECTION:
+        correction[k] = st.number_input(f"{k} α", min_value=0.10, max_value=3.00, value=float(DEFAULT_CORRECTION[k]), step=0.05)
+else:
+    correction = DEFAULT_CORRECTION.copy()
+
+# Load image & compute
 arr = load_image()
 
 rows = []
-final_values = []
+hybrid_values = []
 
 for region, roi in REGIONS.items():
-    raw, hybrid = compute_hybrid_ice(arr, region, roi)
-    if hybrid is not None:
-        final_values.append(hybrid)
+    raw, hybrid = compute_hybrid_ice(arr, region, roi, correction, step=step)
+    if hybrid is None:
         rows.append({
             "Region": region,
-            "Raw (%)": raw,
-            "Hybrid Ice Area (%)": hybrid,
-            "Status": label(hybrid)
+            "Raw (%)": "N/A",
+            "Hybrid Ice Area (%)": "N/A",
+            "Gauge": "⚪ No data",
         })
+        continue
+
+    lvl, icon = friction_label_from_ice(hybrid, bands)
+    rows.append({
+        "Region": region,
+        "Raw (%)": raw,
+        "Hybrid Ice Area (%)": hybrid,
+        "Gauge": f"{icon} {lvl}",
+    })
+    hybrid_values.append(hybrid)
 
 df = pd.DataFrame(rows)
 
-if final_values:
-    overall = round(sum(final_values) / len(final_values), 1)
-    st.metric("POLAR CUDA (Hybrid, overall)", f"{overall} / 100")
-
+# Overall gauge (mean of regions; awareness-only)
 st.markdown("---")
-st.subheader("Sea-Region Hybrid Ice Area (%)")
+st.subheader("Overall situational gauge (average across regions)")
+if hybrid_values:
+    overall = round(sum(hybrid_values) / len(hybrid_values), 1)
+    lvl, icon = friction_label_from_ice(overall, bands)
+    st.metric("POLAR CUDA (Hybrid, overall)", f"{overall}%", help="Average across the defined ROIs; not an operational metric.")
+    st.write(f"Overall gauge: **{icon} {lvl}**")
+    st.plotly_chart(make_gauge("Overall Hybrid Ice Area", overall), use_container_width=True)
+else:
+    st.warning("No valid data returned from the image today.")
+
+# Region outputs
+st.markdown("---")
+st.subheader("Sea-region situational gauge (Fear & Greed style)")
+
+# Show as text + optional per-region gauge charts
+show_gauges = st.checkbox("Show per-region gauges", value=False)
 
 for _, r in df.iterrows():
     st.write(
-        f"**{r['Region']}** → {r['Status']}  |  "
-        f"Hybrid: {r['Hybrid Ice Area (%)']} % "
-        f"(raw {r['Raw (%)']} %)"
+        f"**{r['Region']}** → {r['Gauge']}  |  "
+        f"Hybrid: {r['Hybrid Ice Area (%)']}% (raw {r['Raw (%)']}%)"
     )
+    if show_gauges and isinstance(r["Hybrid Ice Area (%)"], (int, float, np.floating)):
+        st.plotly_chart(make_gauge(r["Region"], float(r["Hybrid Ice Area (%)"])), use_container_width=True)
 
+# Download table
 st.markdown("---")
+st.subheader("Download today's table")
+csv = df.to_csv(index=False).encode("utf-8-sig")
+st.download_button("⬇️ Download CSV", data=csv, file_name=f"polar_cuda_{today}.csv", mime="text/csv")
+
 st.caption(
     """
-**POLAR CUDA v2.0**  
-This hybrid index approximates **visual ice-covered area (%)**
-by combining satellite color signals with expert human judgement.
-
-⚠ Not for navigation or operational use.
+**Data source**: University of Bremen AMSR2 daily sea-ice concentration PNG.  
+**POLAR CUDA** provides **situational awareness only**. It does not certify navigability or operational feasibility.
 """
 )
