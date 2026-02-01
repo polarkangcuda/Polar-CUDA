@@ -9,19 +9,7 @@ import os
 
 # =========================================================
 # POLAR CUDA (v2.3)
-# CUDA = Cryospheric Uncertainty–Driven Awareness
-#
-# POLAR CUDA – Arctic Ice Situational Awareness Gauge
-#
-# Human-in-the-loop:
-# - Designed for decision awareness, not decision-making.
-# - NOT a navigation/routing/feasibility product.
-# - NOT an official ice service or ice chart.
 # =========================================================
-
-# ---------------------------
-# Branding strings
-# ---------------------------
 CUDA_ACRONYM = "Cryospheric Uncertainty–Driven Awareness"
 APP_TITLE = "POLAR CUDA – Arctic Ice Situational Awareness Gauge"
 APP_SUBTITLE = (
@@ -33,15 +21,9 @@ DISCLAIMER_TEXT = """
 ### ⚠ Mandatory disclaimer (situational awareness only)
 
 **POLAR CUDA** is a **situational awareness gauge**, not an operational tool.
-
-- **NOT** navigation, routing, or feasibility advice  
-- **NOT** an official ice chart / ice service  
-- **NOT** forecasting or prediction  
-- **NOT** legal, safety, or operational advice  
-
-This gauge uses a **daily PNG visualization** and a **human-in-the-loop calibration (α)**.  
-All operational decisions and legal responsibility remain with the **user/operator**.  
-Always consult official ice services, ice charts, regulations, insurance/contract terms, and professional judgement.
+- NOT navigation, routing, feasibility, or forecasting
+- NOT an official ice service
+- NOT operational or legal advice
 """
 
 PHILOSOPHY_ONE_LINER = (
@@ -56,14 +38,10 @@ st.set_page_config(page_title=APP_TITLE, layout="centered")
 # ---------------------------------------------------------
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 CACHE_TTL = 3600
-
-# ---------------------------------------------------------
-# Files
-# ---------------------------------------------------------
 ALPHA_HISTORY_FILE = "alpha_history.csv"
 
 # ---------------------------------------------------------
-# Fixed ROIs
+# Regions (ROIs)
 # ---------------------------------------------------------
 REGIONS = {
     "Sea of Okhotsk": (620, 90, 900, 330),
@@ -81,7 +59,7 @@ REGIONS = {
 }
 
 # ---------------------------------------------------------
-# ✅ UPDATED REGIONAL GROUPS (as requested)
+# ✅ UPDATED REGION GROUPS (요청 반영)
 # ---------------------------------------------------------
 REGION_GROUPS = {
     "Pacific Arctic (situational bucket)": [
@@ -99,7 +77,7 @@ REGION_GROUPS = {
 }
 
 # ---------------------------------------------------------
-# Default alpha correction
+# Alpha correction
 # ---------------------------------------------------------
 DEFAULT_CORRECTION = {
     "Sea of Okhotsk": 0.55,
@@ -116,19 +94,12 @@ DEFAULT_CORRECTION = {
     "Baffin Bay": 0.80,
 }
 
-# ---------------------------------------------------------
-# Load image
-# ---------------------------------------------------------
 @st.cache_data(ttl=CACHE_TTL)
 def load_image():
     r = requests.get(AMSR2_URL, timeout=20)
     r.raise_for_status()
-    img = Image.open(BytesIO(r.content)).convert("RGB")
-    return np.array(img)
+    return np.array(Image.open(BytesIO(r.content)).convert("RGB"))
 
-# ---------------------------------------------------------
-# Pixel classifier
-# ---------------------------------------------------------
 def classify_pixel(rgb):
     r, g, b = rgb
     if g > 160 and g > r * 1.15 and g > b * 1.15:
@@ -137,152 +108,85 @@ def classify_pixel(rgb):
         return "water"
     return "ice"
 
-# ---------------------------------------------------------
-# Raw & hybrid ice calculations
-# ---------------------------------------------------------
 def compute_raw_ice(arr, roi, step=4):
     x1, y1, x2, y2 = roi
     ice = water = 0
     h, w, _ = arr.shape
-
-    for y in range(y1, min(y2, h), step):
-        for x in range(x1, min(x2, w), step):
+    for y in range(max(0, y1), min(h, y2), step):
+        for x in range(max(0, x1), min(w, x2), step):
             c = classify_pixel(arr[y, x])
-            if c == "land":
-                continue
             if c == "ice":
                 ice += 1
-            else:
+            elif c == "water":
                 water += 1
-
     if ice + water == 0:
         return None
-    return (ice / (ice + water)) * 100.0
+    return (ice / (ice + water)) * 100
 
-def clamp_0_100(v):
-    return max(0.0, min(100.0, v))
+def clamp(v):
+    return max(0, min(100, v))
 
-def compute_hybrid_ice(arr, region, roi, correction, step=4):
-    raw = compute_raw_ice(arr, roi, step)
-    if raw is None:
-        return None, None
-    alpha = correction.get(region, 1.0)
-    hybrid = clamp_0_100(raw * alpha)
-    return round(raw, 1), round(hybrid, 1)
-
-# ---------------------------------------------------------
-# Gauge labels
-# ---------------------------------------------------------
-def friction_level(ice_pct, t1, t2, t3, t4):
-    if ice_pct <= t1:
-        return "🟢 Extreme Open", "Very low friction"
-    if ice_pct <= t2:
-        return "🟩 Open", "Low friction"
-    if ice_pct <= t3:
-        return "🟡 Neutral", "Moderate friction"
-    if ice_pct <= t4:
-        return "🟠 Constrained", "High friction"
-    return "🔴 Extreme Constrained", "Very high friction"
-
-# ---------------------------------------------------------
-# Alpha history
-# ---------------------------------------------------------
-def save_alpha_history(correction, date_obj):
-    date_str = str(date_obj)
-    rows = [{"date": date_str, "region": r, "alpha": float(a)} for r, a in correction.items()]
-    df_new = pd.DataFrame(rows)
-
-    if os.path.exists(ALPHA_HISTORY_FILE):
-        df_old = pd.read_csv(ALPHA_HISTORY_FILE)
-        df_old = df_old[df_old["date"] != date_str]
-        df_all = pd.concat([df_old, df_new], ignore_index=True)
-    else:
-        df_all = df_new
-
-    df_all.to_csv(ALPHA_HISTORY_FILE, index=False)
+def friction_level(v, t1, t2, t3, t4):
+    if v <= t1: return "🟢 Extreme Open"
+    if v <= t2: return "🟩 Open"
+    if v <= t3: return "🟡 Neutral"
+    if v <= t4: return "🟠 Constrained"
+    return "🔴 Extreme Constrained"
 
 # =========================================================
 # UI
 # =========================================================
-
 st.title(APP_TITLE)
 st.caption(APP_SUBTITLE)
 st.info(f"**CUDA = {CUDA_ACRONYM}**")
 
-with st.expander("⚠ Disclaimer & Scope", expanded=True):
+with st.expander("⚠ Disclaimer", expanded=True):
     st.markdown(DISCLAIMER_TEXT)
     st.markdown(f"> *{PHILOSOPHY_ONE_LINER}*")
 
-ack = st.checkbox("I understand. Show situational awareness outputs.", value=False)
-if not ack:
+if not st.checkbox("I understand and wish to continue"):
     st.stop()
 
-today = datetime.date.today()
-yesterday = today - datetime.timedelta(days=1)
-st.write(f"**Analysis date:** {today}")
+step = st.slider("Sampling step", 2, 12, 4)
+t1, t2, t3, t4 = 15, 35, 60, 85
 
-if st.button("🔄 Refresh (clear cache)"):
-    st.cache_data.clear()
-    st.rerun()
-
-# Settings
-st.subheader("Sampling & Gauge Settings")
-step = st.slider("Sampling step", 2, 12, 4, 1)
-
-t1 = st.slider("Extreme Open ≤", 0, 40, 15)
-t2 = st.slider("Open ≤", 10, 60, 35)
-t3 = st.slider("Neutral ≤", 20, 80, 60)
-t4 = st.slider("Constrained ≤", 40, 95, 85)
-
-if not (t1 < t2 < t3 < t4):
-    st.error("Thresholds must satisfy: Extreme Open < Open < Neutral < Constrained")
-    st.stop()
-
-# Alpha selection
-use_custom_alpha = st.checkbox("Manually adjust α", value=False)
-correction = DEFAULT_CORRECTION.copy()
-
-# Save alpha history
-save_alpha_history(correction, today)
-
-# Compute
 arr = load_image()
 rows = []
-hybrid_values = []
 
-for region, roi in REGIONS.items():
-    raw, hybrid = compute_hybrid_ice(arr, region, roi, correction, step)
-    if hybrid is None:
+for r, roi in REGIONS.items():
+    raw = compute_raw_ice(arr, roi, step)
+    if raw is None:
         continue
-    lvl, note = friction_level(hybrid, t1, t2, t3, t4)
-    rows.append({"Region": region, "Hybrid Ice Area (%)": hybrid})
-    hybrid_values.append(hybrid)
+    hybrid = clamp(raw * DEFAULT_CORRECTION.get(r, 1.0))
+    rows.append({"Region": r, "Hybrid": round(hybrid, 1)})
 
 df = pd.DataFrame(rows)
 
-# ---------------------------------------------------------
-# GROUP AVERAGES (UPDATED)
-# ---------------------------------------------------------
+# =========================================================
+# GROUP AVERAGES
+# =========================================================
 st.markdown("---")
 st.subheader("Regional group averages (situational buckets)")
 
-cols = st.columns(len(REGION_GROUPS))
-for i, (group, members) in enumerate(REGION_GROUPS.items()):
-    vals = df[df["Region"].isin(members)]["Hybrid Ice Area (%)"]
-    if not vals.empty:
+cols = st.columns(2)
+for i, (g, members) in enumerate(REGION_GROUPS.items()):
+    vals = df[df["Region"].isin(members)]["Hybrid"]
+    with cols[i]:
         avg = round(vals.mean(), 1)
-        lvl, _ = friction_level(avg, t1, t2, t3, t4)
-        with cols[i]:
-            st.metric(group, f"{avg}%")
-            st.write(lvl)
-            st.progress(int(avg))
-    else:
-        with cols[i]:
-            st.metric(group, "N/A")
-            st.write("⚪ No data")
+        st.metric(g, f"{avg}%")
+        st.write(friction_level(avg, t1, t2, t3, t4))
+        st.progress(int(avg))
+
+# =========================================================
+# ✅ INDIVIDUAL REGIONS (복구된 핵심 부분)
+# =========================================================
+st.markdown("---")
+st.subheader("Sea-region situational gauges")
+
+for _, r in df.iterrows():
+    lvl = friction_level(r["Hybrid"], t1, t2, t3, t4)
+    st.write(f"**{r['Region']}** → {lvl}  |  {r['Hybrid']}%")
+    st.progress(int(r["Hybrid"]))
 
 st.markdown("---")
-st.caption(
-    f"CUDA = {CUDA_ACRONYM}. "
-    "POLAR CUDA provides situational awareness only."
-)
+st.caption("POLAR CUDA provides situational awareness only.")
