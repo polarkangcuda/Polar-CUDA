@@ -6,17 +6,14 @@ from io import BytesIO
 import datetime
 
 # =========================================================
-# POLAR CUDA – Public Edition
+# POLAR CUDA – Public Edition (12 Regions)
 # CUDA = Cryospheric Uncertainty–Driven Awareness
 #
-# A simple situational awareness gauge
-# for Arctic sea-ice conditions.
-#
-# Not a navigation tool.
-# Not a forecast.
+# Simple, readable, impactful.
+# Situational awareness only.
 # =========================================================
 
-st.set_page_config(page_title="POLAR CUDA", layout="centered")
+st.set_page_config(page_title="POLAR CUDA", layout="wide")
 
 # ---------------------------------------------------------
 # Branding
@@ -24,12 +21,12 @@ st.set_page_config(page_title="POLAR CUDA", layout="centered")
 st.title("🧊 POLAR CUDA")
 st.subheader("Arctic Ice Situational Awareness Gauge")
 st.caption(
-    "A human-vision–aligned gauge for understanding today’s Arctic sea-ice situation.\n"
-    "Designed for awareness, not for decision-making."
+    "A simple, human-readable gauge for today’s Arctic sea-ice situation.\n"
+    "Designed for awareness — not for decision-making."
 )
 
 # ---------------------------------------------------------
-# Mandatory disclaimer (short & readable)
+# Short disclaimer (public-friendly)
 # ---------------------------------------------------------
 with st.expander("⚠️ Important notice", expanded=True):
     st.markdown(
@@ -40,7 +37,7 @@ with st.expander("⚠️ Important notice", expanded=True):
 • Not an official ice chart  
 • Not a routing or safety service  
 
-This gauge helps you **sense the situation**,  
+This gauge helps you **sense today’s situation**,  
 not decide what to do.
 """
     )
@@ -62,24 +59,21 @@ def load_image():
     return np.array(img)
 
 # ---------------------------------------------------------
-# Simplified regions (grouped for public view)
+# 12 Arctic sea regions (fixed ROIs)
 # ---------------------------------------------------------
-REGION_GROUPS = {
-    "Pacific Arctic": [
-        (620, 90, 900, 330),   # Okhotsk
-        (480, 300, 720, 520), # Bering
-        (700, 420, 900, 580), # Chukchi
-        (650, 520, 850, 700), # Beaufort
-    ],
-    "Atlantic Arctic": [
-        (1080, 420, 1280, 600), # Kara
-        (1180, 520, 1420, 720), # Barents
-        (980, 650, 1180, 900),  # Greenland
-        (760, 740, 980, 980),   # Baffin
-    ],
-    "Central Arctic": [
-        (820, 500, 1050, 720),  # Central Arctic Ocean
-    ]
+REGIONS = {
+    "Sea of Okhotsk": (620, 90, 900, 330),
+    "Bering Sea": (480, 300, 720, 520),
+    "Chukchi Sea": (700, 420, 900, 580),
+    "East Siberian Sea": (820, 380, 1030, 560),
+    "Laptev Sea": (930, 370, 1150, 560),
+    "Kara Sea": (1080, 420, 1280, 600),
+    "Barents Sea": (1180, 520, 1420, 720),
+    "Beaufort Sea": (650, 520, 850, 700),
+    "Canadian Arctic Archipelago": (650, 650, 880, 860),
+    "Central Arctic Ocean": (820, 500, 1050, 720),
+    "Greenland Sea": (980, 650, 1180, 900),
+    "Baffin Bay": (760, 740, 980, 980),
 }
 
 # ---------------------------------------------------------
@@ -93,28 +87,27 @@ def classify_pixel(rgb):
         return "water"
     return "ice"
 
-def compute_ice_ratio(arr, rois, step=5):
+def compute_ice_ratio(arr, roi, step=5):
+    x1, y1, x2, y2 = roi
     ice = water = 0
     h, w, _ = arr.shape
 
-    for roi in rois:
-        x1, y1, x2, y2 = roi
-        for y in range(y1, min(y2, h), step):
-            for x in range(x1, min(x2, w), step):
-                c = classify_pixel(arr[y, x])
-                if c == "land":
-                    continue
-                if c == "ice":
-                    ice += 1
-                else:
-                    water += 1
+    for y in range(y1, min(y2, h), step):
+        for x in range(x1, min(x2, w), step):
+            c = classify_pixel(arr[y, x])
+            if c == "land":
+                continue
+            if c == "ice":
+                ice += 1
+            else:
+                water += 1
 
     if ice + water == 0:
         return None
     return round((ice / (ice + water)) * 100, 1)
 
 # ---------------------------------------------------------
-# Gauge interpretation (Fear & Greed style)
+# Public-friendly gauge labels
 # ---------------------------------------------------------
 def gauge_label(pct):
     if pct < 25:
@@ -132,24 +125,31 @@ arr = load_image()
 today = datetime.date.today()
 
 st.markdown("---")
-st.subheader(f"🧭 Today’s Arctic Situation ({today})")
+st.subheader(f"🧭 Today’s Arctic Sea-Ice Situation ({today})")
 
-for region, rois in REGION_GROUPS.items():
-    pct = compute_ice_ratio(arr, rois)
-    if pct is None:
-        st.write(f"**{region}**: No data")
-        continue
+# Display 12 regions in a 3 x 4 grid
+region_items = list(REGIONS.items())
+rows = [region_items[i:i+4] for i in range(0, 12, 4)]
 
-    label, note = gauge_label(pct)
+for row in rows:
+    cols = st.columns(4)
+    for col, (region, roi) in zip(cols, row):
+        pct = compute_ice_ratio(arr, roi)
 
-    st.markdown(f"### {region}")
-    st.write(f"**Ice presence:** {pct}%")
-    st.write(f"**Situation:** {label}")
-    st.caption(note)
-    st.progress(int(pct))
+        with col:
+            st.markdown(f"### {region}")
+            if pct is None:
+                st.write("No data")
+                continue
+
+            label, note = gauge_label(pct)
+            st.write(f"**Ice presence:** {pct}%")
+            st.write(f"**Situation:** {label}")
+            st.caption(note)
+            st.progress(int(pct))
 
 st.markdown("---")
 st.caption(
-    "POLAR CUDA does not tell you what to do.\n"
-    "It helps you understand whether today is a day for confidence—or for hesitation."
+    "POLAR CUDA does not tell you where to go.\n"
+    "It helps you see whether today is a day for confidence — or for hesitation."
 )
