@@ -7,27 +7,18 @@ import datetime
 
 # =========================================================
 # POLAR CUDA – Public Edition (12 Regions)
-# CUDA = Cryospheric Uncertainty–Driven Awareness
-#
-# Simple, readable, impactful.
-# Situational awareness only.
+# Robust masking:
+# - ignores white margins / legend background
+# - ignores gridlines/text (dark gray/black)
+# - more stable water/land detection
 # =========================================================
 
 st.set_page_config(page_title="POLAR CUDA", layout="wide")
 
-# ---------------------------------------------------------
-# Branding
-# ---------------------------------------------------------
 st.title("🧊 POLAR CUDA")
-st.subheader("Arctic Ice Situational Awareness Gauge")
-st.caption(
-    "A simple, human-readable gauge for today’s Arctic sea-ice situation.\n"
-    "Designed for awareness — not for decision-making."
-)
+st.subheader("Arctic Ice Situational Awareness Gauge (12 Regions)")
+st.caption("Public-friendly situational awareness only — not navigation, not forecast, not official ice chart.")
 
-# ---------------------------------------------------------
-# Short disclaimer (public-friendly)
-# ---------------------------------------------------------
 with st.expander("⚠️ Important notice", expanded=True):
     st.markdown(
         """
@@ -37,8 +28,7 @@ with st.expander("⚠️ Important notice", expanded=True):
 • Not an official ice chart  
 • Not a routing or safety service  
 
-This gauge helps you **sense today’s situation**,  
-not decide what to do.
+This gauge helps you **sense today’s situation**, not decide what to do.
 """
     )
 
@@ -46,9 +36,6 @@ agree = st.checkbox("I understand. Show today’s situation.", value=False)
 if not agree:
     st.stop()
 
-# ---------------------------------------------------------
-# Data source
-# ---------------------------------------------------------
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 
 @st.cache_data(ttl=3600)
@@ -58,9 +45,7 @@ def load_image():
     img = Image.open(BytesIO(r.content)).convert("RGB")
     return np.array(img)
 
-# ---------------------------------------------------------
-# 12 Arctic sea regions (fixed ROIs)
-# ---------------------------------------------------------
+# 12 ROIs (as you defined)
 REGIONS = {
     "Sea of Okhotsk": (620, 90, 900, 330),
     "Bering Sea": (480, 300, 720, 520),
@@ -76,39 +61,69 @@ REGIONS = {
     "Baffin Bay": (760, 740, 980, 980),
 }
 
-# ---------------------------------------------------------
-# Very simple color classifier (public version)
-# ---------------------------------------------------------
-def classify_pixel(rgb):
-    r, g, b = rgb
-    if g > 160 and g > r and g > b:
-        return "land"
-    if b > r and b > g:
-        return "water"
-    return "ice"
+# -----------------------------
+# Robust pixel masking rules
+# -----------------------------
+def build_masks(arr):
+    """Return masks: white_margin, dark_grid, land, water.
+    Everything else (non-masked, non-land, non-water) is treated as ice-like."""
+    r = arr[:, :, 0].astype(np.int16)
+    g = arr[:, :, 1].astype(np.int16)
+    b = arr[:, :, 2].astype(np.int16)
 
-def compute_ice_ratio(arr, roi, step=5):
+    # (A) white margin / legend background: near-white pixels
+    white = (r > 245) & (g > 245) & (b > 245)
+
+    # (B) dark gridlines / text: near-black or dark gray
+    # - captures graticule lines and labels
+    # - also handles dark blue? (we keep threshold conservative)
+    maxc = np.maximum(np.maximum(r, g), b)
+    minc = np.minimum(np.minimum(r, g), b)
+    dark = (maxc < 65) | ((maxc < 90) & ((maxc - minc) < 12))
+
+    # (C) land: bright green (Bremen land is very green)
+    land = (g > 150) & (g > r + 40) & (g > b + 40)
+
+    # (D) water: blue-ish & relatively dark (ocean background)
+    # Use both "blue dominance" and "not too bright" constraints
+    water = (b > 80) & (b > r + 15) & (b > g + 10) & (g < 140) & (r < 140)
+
+    return white, dark, land, water
+
+def compute_ice_presence(arr, roi, masks, step=4):
+    """Ice presence (%) within ROI, excluding land, white margins, dark grid/text."""
     x1, y1, x2, y2 = roi
-    ice = water = 0
     h, w, _ = arr.shape
 
-    for y in range(y1, min(y2, h), step):
-        for x in range(x1, min(x2, w), step):
-            c = classify_pixel(arr[y, x])
-            if c == "land":
-                continue
-            if c == "ice":
-                ice += 1
-            else:
-                water += 1
+    x1 = max(0, x1); y1 = max(0, y1)
+    x2 = min(w, x2); y2 = min(h, y2)
 
-    if ice + water == 0:
+    white, dark, land, water = masks
+
+    # sample grid
+    ys = np.arange(y1, y2, step)
+    xs = np.arange(x1, x2, step)
+    if len(xs) == 0 or len(ys) == 0:
         return None
-    return round((ice / (ice + water)) * 100, 1)
 
-# ---------------------------------------------------------
-# Public-friendly gauge labels
-# ---------------------------------------------------------
+    yy, xx = np.meshgrid(ys, xs, indexing="ij")
+
+    # valid = not land, not white, not dark (grid/text)
+    valid = (~land[yy, xx]) & (~white[yy, xx]) & (~dark[yy, xx])
+
+    if valid.sum() == 0:
+        return None
+
+    # among valid pixels: classify water vs ice-like
+    # if not water -> count as ice-like (includes concentration colors)
+    water_pix = water[yy, xx] & valid
+    ice_like = valid & (~water_pix)
+
+    total = valid.sum()
+    ice_count = ice_like.sum()
+
+    return round((ice_count / total) * 100.0, 1)
+
 def gauge_label(pct):
     if pct < 25:
         return "🟢 Mostly Open", "Low ice presence"
@@ -118,28 +133,30 @@ def gauge_label(pct):
         return "🟠 Ice-dominant", "Ice conditions increasingly present"
     return "🔴 Heavily Ice-covered", "Ice dominates the region"
 
-# ---------------------------------------------------------
-# Compute & display
-# ---------------------------------------------------------
+# -----------------------------
+# Run
+# -----------------------------
 arr = load_image()
+masks = build_masks(arr)
 today = datetime.date.today()
 
 st.markdown("---")
 st.subheader(f"🧭 Today’s Arctic Sea-Ice Situation ({today})")
 
-# Display 12 regions in a 3 x 4 grid
-region_items = list(REGIONS.items())
-rows = [region_items[i:i+4] for i in range(0, 12, 4)]
+# 12 cards in 3x4 grid
+items = list(REGIONS.items())
+rows = [items[i:i+4] for i in range(0, 12, 4)]
 
 for row in rows:
     cols = st.columns(4)
-    for col, (region, roi) in zip(cols, row):
-        pct = compute_ice_ratio(arr, roi)
-
+    for col, (name, roi) in zip(cols, row):
         with col:
-            st.markdown(f"### {region}")
+            st.markdown(f"### {name}")
+            pct = compute_ice_presence(arr, roi, masks, step=4)
+
             if pct is None:
-                st.write("No data")
+                st.write("Ice presence: N/A")
+                st.write("Situation: ⚪ No data")
                 continue
 
             label, note = gauge_label(pct)
@@ -149,7 +166,4 @@ for row in rows:
             st.progress(int(pct))
 
 st.markdown("---")
-st.caption(
-    "POLAR CUDA does not tell you where to go.\n"
-    "It helps you see whether today is a day for confidence — or for hesitation."
-)
+st.caption("POLAR CUDA provides situational awareness only. It helps you sense when to hesitate — not what to do.")
