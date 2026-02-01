@@ -6,23 +6,14 @@ from io import BytesIO
 import datetime
 import pandas as pd
 
-# =========================================================
-# POLAR CUDA – Ice Risk Index
-# Daily Arctic sea-ice awareness indicator (non-directive)
-# =========================================================
-
 st.set_page_config(
     page_title="POLAR CUDA – Ice Risk Index",
     layout="centered"
 )
 
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
-CACHE_TTL = 3600  # seconds
+CACHE_TTL = 3600
 
-# ---------------------------------------------------------
-# Expert-defined fixed ROIs (pixel coordinates)
-# (Operational constructs – non-authoritative)
-# ---------------------------------------------------------
 REGIONS = {
     "Sea of Okhotsk": (620, 90, 900, 330),
     "Bering Sea": (480, 300, 720, 520),
@@ -38,39 +29,29 @@ REGIONS = {
     "Baffin Bay": (760, 740, 980, 980),
 }
 
-# ---------------------------------------------------------
-# Load daily AMSR2 image (cached)
-# ---------------------------------------------------------
 @st.cache_data(ttl=CACHE_TTL)
-def load_image():
-    r = requests.get(AMSR2_URL, timeout=20)
-    r.raise_for_status()
-    return np.array(Image.open(BytesIO(r.content)).convert("RGB"))
+def load_image_safe():
+    try:
+        r = requests.get(AMSR2_URL, timeout=15)
+        r.raise_for_status()
+        img = Image.open(BytesIO(r.content)).convert("RGB")
+        return np.array(img)
+    except Exception as e:
+        return None, str(e)
 
-# ---------------------------------------------------------
-# Pixel classification (robust & conservative)
-# ---------------------------------------------------------
 def classify_pixel(rgb):
     r, g, b = rgb
-    # Land (bright green)
     if g > 160 and g > r * 1.1 and g > b * 1.1:
         return "land"
-    # Open water (dark blue)
     if b > 120 and b > r * 1.1 and b > g * 1.1:
         return "water"
-    # All other colors = ice (any concentration)
     return "ice"
 
-# ---------------------------------------------------------
-# Compute Ice Risk Index (0–100)
-# ---------------------------------------------------------
-def compute_index(arr, roi, step=3):
+def compute_index(arr, roi, step=4):
     x1, y1, x2, y2 = roi
-    ice = water = ocean = 0
-
+    ice = ocean = 0
     h, w, _ = arr.shape
-    x2 = min(x2, w)
-    y2 = min(y2, h)
+    x2, y2 = min(x2, w), min(y2, h)
 
     for y in range(y1, y2, step):
         for x in range(x1, x2, step):
@@ -80,47 +61,37 @@ def compute_index(arr, roi, step=3):
             ocean += 1
             if c == "ice":
                 ice += 1
-            else:
-                water += 1
 
     if ocean == 0:
         return None
-
     return round((ice / ocean) * 100, 1)
 
-# ---------------------------------------------------------
-# Human-readable label (Fear / Greed style)
-# ---------------------------------------------------------
 def label(idx):
-    if idx >= 80:
-        return "🔴 Ice-dominant"
-    if idx >= 60:
-        return "🟠 High ice"
-    if idx >= 35:
-        return "🟡 Mixed"
+    if idx >= 80: return "🔴 Ice-dominant"
+    if idx >= 60: return "🟠 High ice"
+    if idx >= 35: return "🟡 Mixed"
     return "🟢 More open"
 
-# =========================================================
-# UI
-# =========================================================
+# ================= UI =================
 
 st.title("🧊 POLAR CUDA – Ice Risk Index")
 st.caption("Daily Arctic sea-ice awareness index (non-directive)")
+st.write(f"**Analysis date:** {datetime.date.today()}")
 
-today = datetime.date.today()
-st.write(f"**Analysis date:** {today}")
-
-# ---------------------------------------------------------
-# Refresh (safe for modern Streamlit)
-# ---------------------------------------------------------
 if st.button("🔄 Refresh"):
     st.cache_data.clear()
-    st.info("Latest available AMSR2 image reloaded.")
+    st.info("Cache cleared. Reloading latest data…")
 
-# ---------------------------------------------------------
-# Core computation
-# ---------------------------------------------------------
-arr = load_image()
+with st.spinner("Loading latest AMSR2 sea-ice image…"):
+    arr, err = load_image_safe()
+
+if arr is None:
+    st.error("❌ Failed to load AMSR2 image.")
+    st.code(err)
+    st.stop()
+
+# 디버그용 (정상 확인 후 제거 가능)
+st.caption(f"Image loaded successfully: shape = {arr.shape}")
 
 results = []
 indices = []
@@ -143,9 +114,6 @@ for region, roi in REGIONS.items():
 
 df = pd.DataFrame(results)
 
-# ---------------------------------------------------------
-# Overall Polar CUDA Index
-# ---------------------------------------------------------
 if indices:
     overall = round(sum(indices) / len(indices), 1)
     st.metric("Polar CUDA Index (overall)", f"{overall} / 100")
@@ -159,12 +127,9 @@ for _, r in df.iterrows():
 st.markdown("---")
 st.caption(
     """
-**Data source**: University of Bremen AMSR2 daily sea-ice concentration PNG.
+Data source: University of Bremen AMSR2 daily sea-ice concentration PNG.
 
-Sea regions are **expert-defined operational sectors** (non-authoritative).
-This index reflects **relative ice dominance**, not navigability.
-
-This tool provides **situational awareness only** and must not replace
-official ice services, navigational products, or operational decision systems.
+This index reflects relative ice dominance in expert-defined operational regions.
+It provides situational awareness only and does not indicate navigability.
 """
 )
