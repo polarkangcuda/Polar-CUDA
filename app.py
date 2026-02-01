@@ -7,7 +7,8 @@ import datetime
 import pandas as pd
 
 # =========================================================
-# POLAR CUDA – Ice Risk Index (Stable Simple Version)
+# POLAR CUDA – Ice Risk Index
+# Daily situational awareness (non-directive)
 # =========================================================
 
 st.set_page_config(
@@ -15,15 +16,11 @@ st.set_page_config(
     layout="centered"
 )
 
-# ---------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 CACHE_TTL = 3600  # seconds
 
 # ---------------------------------------------------------
-# Expert-defined fixed ROIs (pixel coordinates)
-# NOTE: These are interpretive sectors, not legal boundaries
+# Expert-defined fixed ROIs (pixel coordinates, stable)
 # ---------------------------------------------------------
 REGIONS = {
     "Sea of Okhotsk": (620, 90, 900, 330),
@@ -41,45 +38,33 @@ REGIONS = {
 }
 
 # ---------------------------------------------------------
-# Image loader (ALWAYS returns 2 values)
+# Load AMSR2 image (safe)
 # ---------------------------------------------------------
 @st.cache_data(ttl=CACHE_TTL)
 def load_image_safe():
-    try:
-        r = requests.get(AMSR2_URL, timeout=15)
-        r.raise_for_status()
-        img = Image.open(BytesIO(r.content)).convert("RGB")
-        return np.array(img), None
-    except Exception as e:
-        return None, str(e)
+    r = requests.get(AMSR2_URL, timeout=20)
+    r.raise_for_status()
+    img = Image.open(BytesIO(r.content)).convert("RGB")
+    return np.array(img)
 
 # ---------------------------------------------------------
-# Simple pixel classifier (robust & fast)
+# Simple pixel classifier (robust & conservative)
 # ---------------------------------------------------------
 def classify_pixel(rgb):
     r, g, b = rgb
-
-    # Land (green)
-    if g > 150 and g > r * 1.1 and g > b * 1.1:
+    if g > 160 and g > r * 1.1 and g > b * 1.1:
         return "land"
-
-    # Open water (blue)
     if b > 120 and b > r * 1.1 and b > g * 1.1:
         return "water"
-
-    # Otherwise → ice
     return "ice"
 
-# ---------------------------------------------------------
-# Ice Risk Index computation
-# ---------------------------------------------------------
 def compute_index(arr, roi, step=4):
     x1, y1, x2, y2 = roi
     ice = ocean = 0
 
     h, w, _ = arr.shape
-    x1, y1 = max(0, x1), max(0, y1)
-    x2, y2 = min(w, x2), min(h, y2)
+    x1, x2 = max(0, x1), min(w - 1, x2)
+    y1, y2 = max(0, y1), min(h - 1, y2)
 
     for y in range(y1, y2, step):
         for x in range(x1, x2, step):
@@ -95,9 +80,6 @@ def compute_index(arr, roi, step=4):
 
     return round((ice / ocean) * 100, 1)
 
-# ---------------------------------------------------------
-# Human-readable status (non-directive)
-# ---------------------------------------------------------
 def label(idx):
     if idx >= 80:
         return "🔴 Ice-dominant"
@@ -119,44 +101,34 @@ st.write(f"**Analysis date:** {today}")
 
 if st.button("🔄 Refresh"):
     st.cache_data.clear()
-    st.experimental_rerun()
+    st.rerun()
 
-arr, err = load_image_safe()
+arr = load_image_safe()
 
-if arr is None:
-    st.error("❌ Failed to load AMSR2 daily image.")
-    st.code(err)
-    st.stop()
-
-# ---------------------------------------------------------
-# Compute region indices
-# ---------------------------------------------------------
 results = []
-values = []
+indices = []
 
 for region, roi in REGIONS.items():
     idx = compute_index(arr, roi)
-    if idx is None:
-        results.append({
-            "Region": region,
-            "Index": "N/A",
-            "Status": "⚪ No data"
-        })
-    else:
-        values.append(idx)
+    if idx is not None:
+        indices.append(idx)
         results.append({
             "Region": region,
             "Index": idx,
             "Status": label(idx)
         })
+    else:
+        results.append({
+            "Region": region,
+            "Index": "N/A",
+            "Status": "⚪ No data"
+        })
 
 df = pd.DataFrame(results)
 
-# ---------------------------------------------------------
-# Overall Polar CUDA Index (Fear/Greed analogue)
-# ---------------------------------------------------------
-if values:
-    overall = round(sum(values) / len(values), 1)
+# Overall index
+if indices:
+    overall = round(sum(indices) / len(indices), 1)
     st.metric("Polar CUDA Index (overall)", f"{overall} / 100")
 
 st.markdown("---")
