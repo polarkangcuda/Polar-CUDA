@@ -5,6 +5,7 @@ from PIL import Image
 from io import BytesIO
 import datetime
 import pandas as pd
+import zipfile
 
 # =========================================================
 # POLAR CUDA (v2.4)
@@ -425,3 +426,4 @@ st.caption(
     "Place manifest.json and icon PNG files in the web root "
     "or static directory of your deployment."
 )
+
