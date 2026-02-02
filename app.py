@@ -34,7 +34,21 @@ PHILOSOPHY_ONE_LINER = (
     "it helps you recognize when not to decide yet."
 )
 
+# ---------------------------------------------------------
+# Page config
+# ---------------------------------------------------------
 st.set_page_config(page_title=APP_TITLE, layout="centered")
+
+# ---------------------------------------------------------
+# 🔗 PWA manifest 연결
+# ---------------------------------------------------------
+st.markdown(
+    """
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0E1117">
+""",
+    unsafe_allow_html=True
+)
 
 # =========================================================
 # Session state (PWA hint – show once)
@@ -97,7 +111,7 @@ REGION_GROUPS = {
 }
 
 # ---------------------------------------------------------
-# Alpha correction (human visual alignment)
+# Alpha correction
 # ---------------------------------------------------------
 DEFAULT_CORRECTION = {
     "Sea of Okhotsk": 0.55,
@@ -179,7 +193,7 @@ if not st.checkbox("I understand and wish to continue"):
     st.stop()
 
 # =========================================================
-# 📱 PWA INSTALL (Click-to-install where supported)
+# 📱 PWA INSTALL (Click-to-install + iOS 안내)
 # =========================================================
 if not st.session_state.pwa_hint_shown:
     st.markdown("---")
@@ -210,7 +224,7 @@ function platformMessage() {
   if (/iPad|iPhone|iPod/.test(ua)) {
     return "<b>📱 iPhone / iPad</b><br>Safari → Share → <b>Add to Home Screen</b>";
   }
-  return "<b>💻 Desktop / Android</b><br>Click the install button if available.";
+  return "<b>📱 Android / Desktop</b><br>Click the install button if available.";
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -316,4 +330,3 @@ st.caption(
     f"(image date: {amsr2_date if amsr2_date else 'unknown'}). "
     "POLAR CUDA provides situational awareness only."
 )
-
