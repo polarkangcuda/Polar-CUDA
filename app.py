@@ -41,7 +41,7 @@ CACHE_TTL = 3600
 ALPHA_HISTORY_FILE = "alpha_history.csv"
 
 # ---------------------------------------------------------
-# ✅ AMSR2 IMAGE DATE (HTTP header 기반)
+# AMSR2 IMAGE DATE (HTTP header 기반)
 # ---------------------------------------------------------
 def get_amsr2_image_date():
     try:
@@ -71,7 +71,7 @@ REGIONS = {
 }
 
 # ---------------------------------------------------------
-# Region groups (요청 반영)
+# Region groups
 # ---------------------------------------------------------
 REGION_GROUPS = {
     "Pacific Arctic (situational bucket)": [
@@ -159,6 +159,27 @@ with st.expander("⚠ Disclaimer", expanded=True):
 if not st.checkbox("I understand and wish to continue"):
     st.stop()
 
+# =========================================================
+# 📱 PWA 설치 안내 UI (여기에 포함됨)
+# =========================================================
+st.markdown("---")
+st.subheader("📱 Install POLAR CUDA on your phone")
+
+st.markdown(
+    """
+POLAR CUDA can be installed as a **mobile app (PWA)**.
+
+**iPhone (Safari)**  
+• Share → **Add to Home Screen**
+
+**Android / Samsung (Chrome, Samsung Internet)**  
+• Menu → **Install app** or **Add to Home Screen**
+
+Once installed, POLAR CUDA runs in **full-screen app mode**
+and updates automatically.
+"""
+)
+
 # ---------------------------------------------------------
 # Dates
 # ---------------------------------------------------------
@@ -219,7 +240,6 @@ for _, r in df.iterrows():
 # FOOTER / DATA SOURCE
 # =========================================================
 st.markdown("---")
-
 st.caption(
     f"CUDA = {CUDA_ACRONYM}. "
     f"Sea-ice image: University of Bremen AMSR2 daily PNG "
