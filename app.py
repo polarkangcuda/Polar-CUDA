@@ -179,7 +179,7 @@ if not st.checkbox("I understand and wish to continue"):
     st.stop()
 
 # =========================================================
-# 📱 PWA INSTALL GUIDE (1회만 표시)
+# 📱 PWA INSTALL (Click-to-install where supported)
 # =========================================================
 if not st.session_state.pwa_hint_shown:
     st.markdown("---")
@@ -188,28 +188,66 @@ if not st.session_state.pwa_hint_shown:
     st.components.v1.html(
         """
 <script>
-const ua = navigator.userAgent || navigator.vendor || window.opera;
-let msg = "";
+let deferredPrompt = null;
 
-if (/iPad|iPhone|iPod/.test(ua)) {
-  msg = "<b>📱 iPhone / iPad</b><br>Safari → Share → Add to Home Screen";
-} else if (/android/i.test(ua)) {
-  msg = "<b>📱 Android</b><br>Browser menu → Install app / Add to Home Screen";
-} else {
-  msg = "<b>💻 Desktop</b><br>Bookmark or install as PWA if supported";
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  document.getElementById("install-btn").style.display = "inline-block";
+});
+
+function installPWA() {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(() => {
+      deferredPrompt = null;
+    });
+  }
 }
 
-document.getElementById("pwa-msg").innerHTML = msg;
+function platformMessage() {
+  const ua = navigator.userAgent || navigator.vendor || window.opera;
+  if (/iPad|iPhone|iPod/.test(ua)) {
+    return "<b>📱 iPhone / iPad</b><br>Safari → Share → <b>Add to Home Screen</b>";
+  }
+  return "<b>💻 Desktop / Android</b><br>Click the install button if available.";
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("platform-msg").innerHTML = platformMessage();
+});
 </script>
 
-<div style="border:1px solid #ddd;padding:14px;border-radius:8px;background:#f9f9f9">
-  <div id="pwa-msg"></div>
-  <p style="margin-top:8px;color:#666">
-  Once installed, POLAR CUDA runs in full-screen app mode.
+<div style="
+  border:1px solid #ddd;
+  padding:16px;
+  border-radius:10px;
+  background:#f9f9f9;
+  margin-bottom:12px;
+">
+  <div id="platform-msg" style="margin-bottom:10px;"></div>
+
+  <button id="install-btn"
+    onclick="installPWA()"
+    style="
+      display:none;
+      padding:10px 16px;
+      font-size:16px;
+      border-radius:6px;
+      border:none;
+      background:#1f77b4;
+      color:white;
+      cursor:pointer;
+    ">
+    📲 Install POLAR CUDA
+  </button>
+
+  <p style="margin-top:10px;color:#666;font-size:13px">
+    Once installed, POLAR CUDA runs in full-screen app mode.
   </p>
 </div>
 """,
-        height=180,
+        height=220,
     )
 
     if st.button("✅ Got it — don’t show again"):
@@ -278,3 +316,4 @@ st.caption(
     f"(image date: {amsr2_date if amsr2_date else 'unknown'}). "
     "POLAR CUDA provides situational awareness only."
 )
+
