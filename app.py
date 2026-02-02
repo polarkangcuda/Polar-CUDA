@@ -5,34 +5,65 @@ from PIL import Image
 from io import BytesIO
 import datetime
 import pandas as pd
-import os
+
 # =========================================================
-# POLAR CUDA (v2.3)
+# POLAR CUDA (v2.4)
 # =========================================================
 CUDA_ACRONYM = "Cryospheric Uncertainty–Driven Awareness"
 APP_TITLE = "POLAR CUDA – Arctic Ice Situational Awareness Gauge"
 APP_SUBTITLE = (
     "Human-vision–aligned sea-ice sentiment gauge "
     "for decision awareness (not decision-making)."
+)
+
 DISCLAIMER_TEXT = """
 ### ⚠ Mandatory disclaimer (situational awareness only)
+
 **POLAR CUDA** is a **situational awareness gauge**, not an operational tool.
-- NOT navigation, routing, feasibility, or forecasting
-- NOT an official ice service
-- NOT operational or legal advice
+
+- NOT navigation, routing, feasibility, or forecasting  
+- NOT an official ice service or ice chart  
+- NOT legal, safety, or operational advice  
+
+This tool supports **human-in-the-loop awareness only**.  
+All decisions and responsibility remain with the user.
 """
+
 PHILOSOPHY_ONE_LINER = (
     "POLAR CUDA does not tell you what to do — "
     "it helps you recognize when not to decide yet."
-)st.set_page_config(page_title=APP_TITLE, layout="centered")
+)
+
 # ---------------------------------------------------------
+# Page config
+# ---------------------------------------------------------
+st.set_page_config(page_title=APP_TITLE, layout="centered")
+
+# ---------------------------------------------------------
+# 🔗 PWA manifest 연결
+# ---------------------------------------------------------
+st.markdown(
+    """
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0E1117">
+""",
+    unsafe_allow_html=True
+)
+
+# =========================================================
+# Session state (PWA hint – show once)
+# =========================================================
+if "pwa_hint_shown" not in st.session_state:
+    st.session_state.pwa_hint_shown = False
+
+# =========================================================
 # Data source
-# ---------------------------------------------------------
+# =========================================================
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 CACHE_TTL = 3600
-ALPHA_HISTORY_FILE = "alpha_history.csv"
+
 # ---------------------------------------------------------
-# ✅ AMSR2 IMAGE DATE (HTTP header 기반)
+# AMSR2 image date (HTTP header)
 # ---------------------------------------------------------
 def get_amsr2_image_date():
     try:
@@ -42,6 +73,7 @@ def get_amsr2_image_date():
     except Exception:
         pass
     return None
+
 # ---------------------------------------------------------
 # Regions (ROIs)
 # ---------------------------------------------------------
@@ -58,8 +90,10 @@ REGIONS = {
     "Central Arctic Ocean": (820, 500, 1050, 720),
     "Greenland Sea": (980, 650, 1180, 900),
     "Baffin Bay": (760, 740, 980, 980),
-}# ---------------------------------------------------------
-# Region groups (요청 반영)
+}
+
+# ---------------------------------------------------------
+# Region groups
 # ---------------------------------------------------------
 REGION_GROUPS = {
     "Pacific Arctic (situational bucket)": [
@@ -74,7 +108,9 @@ REGION_GROUPS = {
         "Greenland Sea",
         "Baffin Bay",
     ],
-}# ---------------------------------------------------------
+}
+
+# ---------------------------------------------------------
 # Alpha correction
 # ---------------------------------------------------------
 DEFAULT_CORRECTION = {
@@ -90,11 +126,20 @@ DEFAULT_CORRECTION = {
     "Central Arctic Ocean": 1.00,
     "Greenland Sea": 0.75,
     "Baffin Bay": 0.80,
-}@st.cache_data(ttl=CACHE_TTL)
+}
+
+# ---------------------------------------------------------
+# Load AMSR2 image
+# ---------------------------------------------------------
+@st.cache_data(ttl=CACHE_TTL)
 def load_image():
     r = requests.get(AMSR2_URL, timeout=20)
     r.raise_for_status()
     return np.array(Image.open(BytesIO(r.content)).convert("RGB"))
+
+# ---------------------------------------------------------
+# Pixel classifier
+# ---------------------------------------------------------
 def classify_pixel(rgb):
     r, g, b = rgb
     if g > 160 and g > r * 1.15 and g > b * 1.15:
@@ -102,10 +147,15 @@ def classify_pixel(rgb):
     if b > r and b > g:
         return "water"
     return "ice"
+
+# ---------------------------------------------------------
+# Ice computation
+# ---------------------------------------------------------
 def compute_raw_ice(arr, roi, step=4):
     x1, y1, x2, y2 = roi
     ice = water = 0
     h, w, _ = arr.shape
+
     for y in range(max(0, y1), min(h, y2), step):
         for x in range(max(0, x1), min(w, x2), step):
             c = classify_pixel(arr[y, x])
@@ -113,76 +163,165 @@ def compute_raw_ice(arr, roi, step=4):
                 ice += 1
             elif c == "water":
                 water += 1
+
     if ice + water == 0:
         return None
     return (ice / (ice + water)) * 100
+
 def clamp(v):
     return max(0, min(100, v))
-def friction_level(v, t1, t2, t3, t4):
-    if v <= t1: return "🟢 Extreme Open"
-    if v <= t2: return "🟩 Open"
-    if v <= t3: return "🟡 Neutral"
-    if v <= t4: return "🟠 Constrained"
+
+def friction_level(v):
+    if v <= 15: return "🟢 Extreme Open"
+    if v <= 35: return "🟩 Open"
+    if v <= 60: return "🟡 Neutral"
+    if v <= 85: return "🟠 Constrained"
     return "🔴 Extreme Constrained"
+
 # =========================================================
-# UI
+# UI – HEADER
 # =========================================================
 st.title(APP_TITLE)
 st.caption(APP_SUBTITLE)
 st.info(f"**CUDA = {CUDA_ACRONYM}**")
-with st.expander("⚠ Disclaimer", expanded=True):
+
+with st.expander("⚠ Disclaimer & Scope", expanded=True):
     st.markdown(DISCLAIMER_TEXT)
     st.markdown(f"> *{PHILOSOPHY_ONE_LINER}*")
+
 if not st.checkbox("I understand and wish to continue"):
     st.stop()
-# ---------------------------------------------------------
+
+# =========================================================
+# 📱 PWA INSTALL (Click-to-install + iOS 안내)
+# =========================================================
+if not st.session_state.pwa_hint_shown:
+    st.markdown("---")
+    st.subheader("📱 Install POLAR CUDA as an App")
+
+    st.components.v1.html(
+        """
+<script>
+let deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  document.getElementById("install-btn").style.display = "inline-block";
+});
+
+function installPWA() {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(() => {
+      deferredPrompt = null;
+    });
+  }
+}
+
+function platformMessage() {
+  const ua = navigator.userAgent || navigator.vendor || window.opera;
+  if (/iPad|iPhone|iPod/.test(ua)) {
+    return "<b>📱 iPhone / iPad</b><br>Safari → Share → <b>Add to Home Screen</b>";
+  }
+  return "<b>📱 Android / Desktop</b><br>Click the install button if available.";
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("platform-msg").innerHTML = platformMessage();
+});
+</script>
+
+<div style="
+  border:1px solid #ddd;
+  padding:16px;
+  border-radius:10px;
+  background:#f9f9f9;
+  margin-bottom:12px;
+">
+  <div id="platform-msg" style="margin-bottom:10px;"></div>
+
+  <button id="install-btn"
+    onclick="installPWA()"
+    style="
+      display:none;
+      padding:10px 16px;
+      font-size:16px;
+      border-radius:6px;
+      border:none;
+      background:#1f77b4;
+      color:white;
+      cursor:pointer;
+    ">
+    📲 Install POLAR CUDA
+  </button>
+
+  <p style="margin-top:10px;color:#666;font-size:13px">
+    Once installed, POLAR CUDA runs in full-screen app mode.
+  </p>
+</div>
+""",
+        height=220,
+    )
+
+    if st.button("✅ Got it — don’t show again"):
+        st.session_state.pwa_hint_shown = True
+        st.rerun()
+
+# =========================================================
 # Dates
-# ---------------------------------------------------------
+# =========================================================
 today = datetime.date.today()
 amsr2_date = get_amsr2_image_date()
+
+st.markdown("---")
 st.write(f"**Analysis date (app run):** {today}")
-if amsr2_date:
-    st.write(f"**Sea-ice image date (AMSR2):** {amsr2_date}")
-else:
-    st.write("**Sea-ice image date (AMSR2):** Unknown")
-# ---------------------------------------------------------
-# Settings
-# ---------------------------------------------------------
-step = st.slider("Sampling step", 2, 12, 4)
-t1, t2, t3, t4 = 15, 35, 60, 85
+st.write(f"**Sea-ice image date (AMSR2):** {amsr2_date if amsr2_date else 'Unknown'}")
+
+# =========================================================
+# Analysis
+# =========================================================
+step = st.slider("Sampling step (speed vs detail)", 2, 12, 4)
 arr = load_image()
+
 rows = []
-for r, roi in REGIONS.items():
+for region, roi in REGIONS.items():
     raw = compute_raw_ice(arr, roi, step)
     if raw is None:
         continue
-    hybrid = clamp(raw * DEFAULT_CORRECTION.get(r, 1.0))
-    rows.append({"Region": r, "Hybrid": round(hybrid, 1)})
+    hybrid = clamp(raw * DEFAULT_CORRECTION.get(region, 1.0))
+    rows.append({"Region": region, "Hybrid": round(hybrid, 1)})
+
 df = pd.DataFrame(rows)
+
 # =========================================================
 # GROUP AVERAGES
 # =========================================================
 st.markdown("---")
-st.subheader("Regional group averages (situational buckets)")
+st.subheader("Regional group averages")
+
 cols = st.columns(2)
-for i, (g, members) in enumerate(REGION_GROUPS.items()):
+for i, (group, members) in enumerate(REGION_GROUPS.items()):
     vals = df[df["Region"].isin(members)]["Hybrid"]
     with cols[i]:
         avg = round(vals.mean(), 1)
-        st.metric(g, f"{avg}%")
-        st.write(friction_level(avg, t1, t2, t3, t4))
+        st.metric(group, f"{avg}%")
+        st.write(friction_level(avg))
         st.progress(int(avg))
+
 # =========================================================
 # INDIVIDUAL REGIONS
 # =========================================================
 st.markdown("---")
 st.subheader("Sea-region situational gauges")
+
 for _, r in df.iterrows():
-    lvl = friction_level(r["Hybrid"], t1, t2, t3, t4)
-    st.write(f"**{r['Region']}** → {lvl}  |  {r['Hybrid']}%")
+    lvl = friction_level(r["Hybrid"])
+    st.write(f"**{r['Region']}** → {lvl} | {r['Hybrid']}%")
     st.progress(int(r["Hybrid"]))
+
 # =========================================================
-# FOOTER / DATA SOURCE
+# FOOTER
 # =========================================================
 st.markdown("---")
 st.caption(
@@ -191,4 +330,3 @@ st.caption(
     f"(image date: {amsr2_date if amsr2_date else 'unknown'}). "
     "POLAR CUDA provides situational awareness only."
 )
-
