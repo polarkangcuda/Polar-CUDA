@@ -14,7 +14,7 @@ APP_TITLE = "POLAR CUDA – Arctic Ice Situational Awareness Gauge"
 APP_SUBTITLE = (
     "Human-vision–aligned sea-ice sentiment gauge "
     "for decision awareness (not decision-making)."
-)DISCLAIMER_TEXT = """
+DISCLAIMER_TEXT = """
 ### ⚠ Mandatory disclaimer (situational awareness only)
 **POLAR CUDA** is a **situational awareness gauge**, not an operational tool.
 - NOT navigation, routing, feasibility, or forecasting
@@ -191,3 +191,4 @@ st.caption(
     f"(image date: {amsr2_date if amsr2_date else 'unknown'}). "
     "POLAR CUDA provides situational awareness only."
 )
+
