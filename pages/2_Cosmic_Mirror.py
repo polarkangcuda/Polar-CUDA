@@ -1,204 +1,122 @@
-# =========================================================
-# 🌌 Cosmic Mirror
-# Universe – Consciousness – Human
-# Zero-SDK / Zero-Error Stable Version
-# =========================================================
 
-import os
-import json
-import datetime
-import requests
-import streamlit as st
-
-# ---------------------------------------------------------
-# Page configuration
-# ---------------------------------------------------------
-st.set_page_config(
-    page_title="Cosmic Mirror",
-    page_icon="🌌",
-    layout="centered"
-)
-
-# ---------------------------------------------------------
-# Header
-# ---------------------------------------------------------
-st.title("🌌 Cosmic Mirror")
-st.caption(
-    "This is not divination.\n\n"
-    "Birth information is treated only as a symbolic coordinate —\n"
-    "a mirror to reflect the relationship between\n"
-    "**the universe, consciousness, and human life**."
-)
-
-st.divider()
-
-# ---------------------------------------------------------
-# API Key handling (NO ERROR, ONLY MESSAGE)
-# ---------------------------------------------------------
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-if not OPENAI_API_KEY:
-    st.warning(
-        "🔑 OpenAI API key is not configured yet.\n\n"
-        "To activate Cosmic Mirror:\n"
-        "1. Open **Streamlit Cloud**\n"
-        "2. Click **Manage app → Settings → Secrets**\n"
-        "3. Add:\n\n"
-        "```\nOPENAI_API_KEY = \"sk-...\"\n```\n\n"
-        "Until then, this page remains safely inactive."
+Until then, this page remains **safely inactive**.
+"""
     )
     st.stop()
 
-# ---------------------------------------------------------
-# Inputs
-# ---------------------------------------------------------
-st.subheader("🧭 Symbolic Birth Coordinates")
+# ------------------------------------------------------------
+# User input (symbolic only)
+# ------------------------------------------------------------
+st.subheader("Symbolic Birth Coordinates")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    birth_date = st.date_input(
-        "Date of birth",
-        value=datetime.date(1990, 1, 1)
-    )
+    birth_date = st.date_input("Date of birth")
+    birth_time = st.time_input("Time of birth")
 
 with col2:
-    birth_time = st.time_input(
-        "Time of birth",
-        value=datetime.time(12, 0)
+    birth_place = st.text_input("Place of birth (symbolic)")
+    current_question = st.text_area(
+        "What question is alive in you now?",
+        placeholder="Not 'What will happen?', but 'How should I understand where I am?'"
     )
-
-birth_place = st.text_input(
-    "Place of birth (city / country)",
-    placeholder="Seoul, Korea"
-)
-
-intent = st.text_area(
-    "What question or uncertainty are you living with right now?",
-    height=120,
-    placeholder=(
-        "- A decision you are postponing\n"
-        "- A quiet anxiety\n"
-        "- A turning point\n"
-        "- Something you cannot yet name\n"
-    )
-)
 
 st.divider()
 
-# ---------------------------------------------------------
-# Prompt builder
-# ---------------------------------------------------------
-def build_prompt():
-    return f"""
-You are NOT an astrologer.
-You are NOT a fortune teller.
+# ------------------------------------------------------------
+# Reflection trigger
+# ------------------------------------------------------------
+if st.button("🪐 Reflect", type="primary"):
 
-You are a philosopher of science and consciousness.
+    if current_question.strip() == "":
+        st.warning("Please enter a question to reflect on.")
+        st.stop()
 
-Birth data below is symbolic only.
-It is NOT used for prediction.
+    # --------------------------------------------------------
+    # Prompt (anti-divination, anti-prediction)
+    # --------------------------------------------------------
+    system_prompt = """
+You are Cosmic Mirror.
 
-Birth:
+You do NOT predict the future.
+You do NOT give advice or instructions.
+You do NOT claim hidden knowledge.
+
+You reflect the relationship between:
+- cosmic time,
+- human consciousness,
+- symbolic meaning.
+
+You speak calmly, clearly, and responsibly.
+
+Your task:
+Transform anxiety into understanding.
+Transform dependence into agency.
+"""
+
+    user_prompt = f"""
+Symbolic coordinates (not causal):
 - Date: {birth_date}
 - Time: {birth_time}
 - Place: {birth_place}
 
-Current human contemplation:
-{intent}
+Human question:
+"{current_question}"
 
-Rules:
-- No prediction
-- No advice
-- No destiny or fate language
-- No astrology or divination terms
+Reflect this situation using:
+- cosmic timescale
+- impermanence
+- responsibility
+- observation over prediction
 
-Perspective:
-- the universe as a process
-- rotation, time, emergence
-- observation as reality-forming
-- human consciousness as a local expression of the cosmos
-
-End with a short section titled:
-"Quiet Reminder"
-
-Tone:
-calm, grounded, precise, compassionate
-
-Length:
-5–7 short paragraphs
+Do not answer with fortune-telling.
+Do not promise outcomes.
 """
 
-# ---------------------------------------------------------
-# OpenAI HTTP call (safe)
-# ---------------------------------------------------------
-def call_openai(prompt):
-    url = "https://api.openai.com/v1/chat/completions"
-
+    # --------------------------------------------------------
+    # OpenAI API call (raw HTTPS, no openai package)
+    # --------------------------------------------------------
     headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json"
     }
 
     payload = {
         "model": "gpt-4.1-mini",
         "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You speak with philosophical clarity, "
-                    "scientific restraint, and ethical calm."
-                )
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
         ],
-        "temperature": 0.7
+        "temperature": 0.6
     }
 
-    response = requests.post(
-        url,
-        headers=headers,
-        json=payload,
-        timeout=60
-    )
+    try:
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            data=json.dumps(payload),
+            timeout=30
+        )
 
-    if response.status_code != 200:
-        return None, response.text
+        if response.status_code != 200:
+            st.error("The mirror remains silent. (API response error)")
+            st.stop()
 
-    data = response.json()
-    return data["choices"][0]["message"]["content"], None
+        result = response.json()
+        reflection = result["choices"][0]["message"]["content"]
 
-# ---------------------------------------------------------
-# Action button
-# ---------------------------------------------------------
-if st.button("🌠 Reflect", type="primary"):
-    with st.spinner("Listening to the universe..."):
-        reflection, error = call_openai(build_prompt())
+        # ----------------------------------------------------
+        # Display reflection
+        # ----------------------------------------------------
+        st.subheader("🪞 Reflection")
+        st.markdown(reflection)
 
-        st.divider()
+        st.caption(
+            "This reflection does not describe your fate. "
+            "It describes how you are standing within time."
+        )
 
-        if error:
-            st.error("The universe remained silent this time.")
-            st.code(error)
-        else:
-            st.subheader("🪞 Reflection")
-            st.write(reflection)
-
-            st.caption(
-                "This reflection does not define you.\n"
-                "It marks a moment where the universe\n"
-                "briefly recognizes itself as lived experience."
-            )
-
-# ---------------------------------------------------------
-# Footer
-# ---------------------------------------------------------
-st.divider()
-st.caption(
-    "Cosmic Mirror is not a prediction system.\n"
-    "It is a narrative interface between\n"
-    "cosmic history, symbolic language, and human awareness."
-)
+    except Exception as e:
+        st.error("The mirror could not respond at this moment.")
+        st.caption(str(e))
