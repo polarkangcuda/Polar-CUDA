@@ -15,18 +15,15 @@ st.set_page_config(
 # --------------------------------------------------
 st.title("🪞 Cosmic Mirror")
 
-st.markdown(
-    """
-**This is not divination.**
-
-Birth information is treated only as a **symbolic coordinate** —  
-a mirror to reflect the relationship between the **universe, consciousness, and human life**.
-
-- No future is predicted.  
-- No authority is invoked.  
-- Only **reflection and responsibility**.
-"""
+st.write("**This is not divination.**")
+st.write(
+    "Birth information is treated only as a symbolic coordinate — "
+    "a mirror to reflect the relationship between the universe, "
+    "consciousness, and human life."
 )
+st.write("- No future is predicted.")
+st.write("- No authority is invoked.")
+st.write("- Only reflection and responsibility.")
 
 st.divider()
 
@@ -70,8 +67,10 @@ st.divider()
 def cosmic_reflection(dob, tob, pob, question):
     year = dob.year
     hour = tob.hour
+    today_year = date.today().year
+    age = today_year - year
 
-    # Temporal framing
+    # Time symbolism
     if hour < 6:
         time_symbol = "the quiet threshold between night and beginning"
     elif hour < 12:
@@ -81,9 +80,7 @@ def cosmic_reflection(dob, tob, pob, question):
     else:
         time_symbol = "the descent toward reflection and release"
 
-    # Age-as-structure (not prediction)
-    age = date.today().year - year
-
+    # Life phase
     if age < 40:
         life_phase = "a period of accumulation and formation"
     elif age < 60:
@@ -91,71 +88,58 @@ def cosmic_reflection(dob, tob, pob, question):
     else:
         life_phase = "a period of integration, transmission, and restraint"
 
-    # Place handling (symbolic, optional)
+    # Place line
     if pob.strip() == "":
         place_line = (
-            "You did not name a place.  
-This itself is meaningful:  
-your question is not anchored to geography, but to **time and stance**."
+            "You did not name a place. "
+            "This suggests that your question is anchored not to geography, "
+            "but to time and inner stance."
         )
     else:
         place_line = (
-            f"You named **{pob}**, not as destiny,  
-but as a reminder that every human life begins **somewhere**,  
-yet is never confined there."
+            f"You named '{pob}' not as destiny, "
+            "but as a reminder that every life begins somewhere, "
+            "yet is never confined there."
         )
 
-    # Question handling
+    # Question line
     if question.strip() == "":
         question_line = (
-            "You did not pose a question.  
-Silence is also a form of inquiry.  
-Sometimes the task is not to ask more, but to **listen longer**."
+            "You did not pose a question. "
+            "Silence itself can be a form of inquiry."
         )
     else:
         question_line = (
-            f"You brought this living question:\n\n> *{question}*\n\n"
-            "This is not a request for answers,  
-but a signal of **readiness to carry uncertainty**."
+            "You brought this living question:\n\n"
+            f"\"{question}\"\n\n"
+            "This is not a request for prediction, "
+            "but a signal of readiness to carry uncertainty."
         )
 
-    # Final reflection text
-    reflection = f"""
-### 🪞 Reflection
+    # Assemble reflection safely
+    reflection = (
+        "### 🪞 Reflection\n\n"
+        f"You were born in {year}, at a moment shaped by {time_symbol}.\n\n"
+        f"You are now in {life_phase}.\n\n"
+        f"{place_line}\n\n"
+        f"{question_line}\n\n"
+        "What matters now is not what the universe will give you.\n\n"
+        "What matters is:\n"
+        "- What weight you can now carry without resentment.\n"
+        "- What you can release without denial.\n"
+        "- What you must do without waiting for permission.\n\n"
+        "The universe does not speak in instructions.\n"
+        "It responds to clarity of stance.\n\n"
+        "This mirror does not tell you who you are.\n"
+        "It asks whether you are willing to stand where you already are."
+    )
 
-You were born in **{year}**, at a moment shaped by  
-**{time_symbol}**.
-
-You are now in **{life_phase}** —  
-not because time commands you,  
-but because **time reveals what can no longer be avoided**.
-
-{place_line}
-
-{question_line}
-
-What matters now is not what the universe will give you.
-
-What matters is:
-
-- What weight are you now able to carry without resentment?
-- What can you release without denial?
-- What must you do **without waiting for permission**?
-
-The universe does not speak in instructions.  
-It responds to **clarity of stance**.
-
-This mirror does not tell you who you are.  
-It asks whether you are willing to **stand where you already are**.
-"""
     return reflection
 
-
 # --------------------------------------------------
-# Action button
+# Action
 # --------------------------------------------------
 if st.button("🚀 Reflect"):
     with st.spinner("Holding the mirror steady..."):
-        result = cosmic_reflection(dob, tob, pob, question)
-
-    st.markdown(result)
+        text = cosmic_reflection(dob, tob, pob, question)
+    st.markdown(text)
