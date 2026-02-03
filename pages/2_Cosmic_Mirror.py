@@ -1,119 +1,161 @@
-# pages/2_Cosmic_Mirror.py
-
 import streamlit as st
 from datetime import date, time
-import os
 
-# --- Page config ---
+# --------------------------------------------------
+# Page config
+# --------------------------------------------------
 st.set_page_config(
     page_title="Cosmic Mirror",
     page_icon="🪞",
     layout="wide"
 )
 
-# --- Header ---
+# --------------------------------------------------
+# Header
+# --------------------------------------------------
 st.title("🪞 Cosmic Mirror")
 
-st.markdown("""
+st.markdown(
+    """
 **This is not divination.**
 
-Birth information is treated only as a symbolic coordinate —  
-a mirror to reflect the relationship between the universe, consciousness, and human life.
+Birth information is treated only as a **symbolic coordinate** —  
+a mirror to reflect the relationship between the **universe, consciousness, and human life**.
 
-No future is predicted.  
-No authority is invoked.  
-Only reflection and responsibility.
-""")
+- No future is predicted.  
+- No authority is invoked.  
+- Only **reflection and responsibility**.
+"""
+)
 
 st.divider()
 
-# --- Input section ---
+# --------------------------------------------------
+# Input section
+# --------------------------------------------------
 st.header("Symbolic Birth Coordinates")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    birth_date = st.date_input(
+    dob = st.date_input(
         "Date of birth",
-        value=date(1980, 1, 1),
-        min_value=date(1800, 1, 1),
+        value=date(1960, 1, 1),
+        min_value=date(1900, 1, 1),
         max_value=date.today()
     )
-    birth_time = st.time_input(
+
+    tob = st.time_input(
         "Time of birth",
-        value=time(6, 30)
+        value=time(6, 0)
     )
 
 with col2:
-    birth_place = st.text_input(
+    pob = st.text_input(
         "Place of birth (symbolic)",
-        value="Suwon Korea"
+        value=""
     )
-    user_question = st.text_area(
+
+    question = st.text_area(
         "What question is alive in you now?",
-        placeholder="Not 'What will happen?', but 'How should I understand where I am?'"
+        placeholder="Not 'What will happen?', but 'How should I stand where I am?'",
+        height=120
     )
 
 st.divider()
 
-# --- API Key check ---
-api_key = st.secrets.get("OPENAI_API_KEY")
+# --------------------------------------------------
+# Reflection engine (NO AI, NO API)
+# --------------------------------------------------
+def cosmic_reflection(dob, tob, pob, question):
+    year = dob.year
+    hour = tob.hour
 
-if not api_key:
-    st.warning(
-        "🔑 OpenAI API key is not configured.\n\n"
-        "Streamlit Cloud → Manage app → Settings → Secrets\n\n"
-        "Add:\n\n"
-        "OPENAI_API_KEY = \"sk-...\""
-    )
-    st.stop()
+    # Temporal framing
+    if hour < 6:
+        time_symbol = "the quiet threshold between night and beginning"
+    elif hour < 12:
+        time_symbol = "the slow rising of clarity and responsibility"
+    elif hour < 18:
+        time_symbol = "the long arc of engagement and consequence"
+    else:
+        time_symbol = "the descent toward reflection and release"
 
-# --- Reflect button ---
-if st.button("🚀 Reflect"):
-    try:
-        from openai import OpenAI
+    # Age-as-structure (not prediction)
+    age = date.today().year - year
 
-        client = OpenAI(api_key=api_key)
+    if age < 40:
+        life_phase = "a period of accumulation and formation"
+    elif age < 60:
+        life_phase = "a period of discernment and weight-bearing choices"
+    else:
+        life_phase = "a period of integration, transmission, and restraint"
 
-        prompt = f"""
-You are a philosophical mirror, not a fortune teller.
-
-A human provides symbolic birth coordinates and a living question.
-
-Date of birth: {birth_date}
-Time of birth: {birth_time}
-Place of birth (symbolic): {birth_place}
-
-The human asks:
-\"\"\"{user_question}\"\"\"
-
-Reflect on:
-- time
-- life phase
-- responsibility
-- freedom
-- meaning
-
-Do not predict the future.
-Do not give instructions.
-Offer a calm, grounded reflection in Korean.
-"""
-
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a philosophical mirror."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
+    # Place handling (symbolic, optional)
+    if pob.strip() == "":
+        place_line = (
+            "You did not name a place.  
+This itself is meaningful:  
+your question is not anchored to geography, but to **time and stance**."
+        )
+    else:
+        place_line = (
+            f"You named **{pob}**, not as destiny,  
+but as a reminder that every human life begins **somewhere**,  
+yet is never confined there."
         )
 
-        if not response or not response.choices:
-            st.error("The mirror remains silent (empty response from API).")
-        else:
-            st.subheader("🪞 Reflection")
-            st.markdown(response.choices[0].message.content)
+    # Question handling
+    if question.strip() == "":
+        question_line = (
+            "You did not pose a question.  
+Silence is also a form of inquiry.  
+Sometimes the task is not to ask more, but to **listen longer**."
+        )
+    else:
+        question_line = (
+            f"You brought this living question:\n\n> *{question}*\n\n"
+            "This is not a request for answers,  
+but a signal of **readiness to carry uncertainty**."
+        )
 
-    except Exception as e:
-        st.error("The mirror remains silent (API response error).")
-        st.code(str(e))
+    # Final reflection text
+    reflection = f"""
+### 🪞 Reflection
+
+You were born in **{year}**, at a moment shaped by  
+**{time_symbol}**.
+
+You are now in **{life_phase}** —  
+not because time commands you,  
+but because **time reveals what can no longer be avoided**.
+
+{place_line}
+
+{question_line}
+
+What matters now is not what the universe will give you.
+
+What matters is:
+
+- What weight are you now able to carry without resentment?
+- What can you release without denial?
+- What must you do **without waiting for permission**?
+
+The universe does not speak in instructions.  
+It responds to **clarity of stance**.
+
+This mirror does not tell you who you are.  
+It asks whether you are willing to **stand where you already are**.
+"""
+    return reflection
+
+
+# --------------------------------------------------
+# Action button
+# --------------------------------------------------
+if st.button("🚀 Reflect"):
+    with st.spinner("Holding the mirror steady..."):
+        result = cosmic_reflection(dob, tob, pob, question)
+
+    st.markdown(result)
