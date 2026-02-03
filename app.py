@@ -4,7 +4,7 @@ import streamlit as st
 # Page config (MUST be called once, at the very top)
 # =========================================================
 st.set_page_config(
-    page_title="Polar CUDA",
+    page_title="POLAR CUDA",
     page_icon="❄️",
     layout="wide"
 )
@@ -14,15 +14,17 @@ st.set_page_config(
 # =========================================================
 import numpy as np
 import requests
-from PIL import Image
+from PIL import Image, ImageDraw
 from io import BytesIO
 import datetime
 import pandas as pd
 
 # =========================================================
-# POLAR CUDA (v2.4 – iOS clean UI)
+# App constants (v2.5)
 # =========================================================
+APP_VERSION = "v2.5"
 CUDA_ACRONYM = "Cryospheric Uncertainty–Driven Awareness"
+
 APP_TITLE = "POLAR CUDA – Arctic Ice Situational Awareness Gauge"
 APP_SUBTITLE = (
     "Human-vision–aligned sea-ice sentiment gauge "
@@ -48,37 +50,10 @@ PHILOSOPHY_ONE_LINER = (
 )
 
 # =========================================================
-# Optional PWA metadata (NO install UI)
-# =========================================================
-st.markdown(
-    """
-<link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#0E1117">
-""",
-    unsafe_allow_html=True
-)
-
-# =========================================================
 # Data source
 # =========================================================
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 CACHE_TTL = 3600
-
-# =========================================================
-# AMSR2 image date
-# =========================================================
-def get_amsr2_image_date():
-    try:
-        r = requests.head(
-            AMSR2_URL,
-            timeout=10,
-            allow_redirects=True
-        )
-        if "Last-Modified" in r.headers:
-            return pd.to_datetime(r.headers["Last-Modified"]).date()
-    except Exception:
-        pass
-    return None
 
 # =========================================================
 # Regions (ROIs)
@@ -123,13 +98,20 @@ DEFAULT_CORRECTION = {
 }
 
 # =========================================================
-# Image loading & processing
+# Utilities
 # =========================================================
 @st.cache_data(ttl=CACHE_TTL)
 def load_image():
     r = requests.get(AMSR2_URL, timeout=20)
     r.raise_for_status()
-    return np.array(Image.open(BytesIO(r.content)).convert("RGB"))
+    return Image.open(BytesIO(r.content)).convert("RGB")
+
+def draw_roi_boxes(image, regions):
+    img = image.copy()
+    draw = ImageDraw.Draw(img)
+    for name, (x1, y1, x2, y2) in regions.items():
+        draw.rectangle([x1, y1, x2, y2], outline="red", width=2)
+    return img
 
 def classify_pixel(rgb):
     r, g, b = rgb
@@ -139,7 +121,7 @@ def classify_pixel(rgb):
         return "water"
     return "ice"
 
-def compute_raw_ice(arr, roi, step=4):
+def compute_raw_ice(arr, roi, step):
     x1, y1, x2, y2 = roi
     ice = water = 0
     for y in range(y1, y2, step):
@@ -164,7 +146,20 @@ def friction_level(v):
     return "🔴 Extreme Constrained"
 
 # =========================================================
-# UI
+# Sidebar (Control layer)
+# =========================================================
+st.sidebar.title("POLAR CUDA")
+st.sidebar.caption(APP_VERSION)
+
+show_roi = st.sidebar.checkbox("Show ROI boxes on map", value=False)
+step = st.sidebar.slider("Sampling step", 2, 12, 4)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("**CUDA = Cryospheric Uncertainty–Driven Awareness**")
+st.sidebar.markdown("_Situational awareness, not decision-making_")
+
+# =========================================================
+# Main UI (Signal layer)
 # =========================================================
 st.title(APP_TITLE)
 st.caption(APP_SUBTITLE)
@@ -178,26 +173,19 @@ if not st.checkbox("I understand and wish to continue"):
     st.stop()
 
 # =========================================================
-# Dates
+# Image & visualization
 # =========================================================
-today = datetime.date.today()
-amsr2_date = get_amsr2_image_date()
+image = load_image()
 
-st.markdown("---")
-st.write(f"**Analysis date (app run):** {today}")
-st.write(f"**Sea-ice image date (AMSR2):** {amsr2_date or 'Unknown'}")
+if show_roi:
+    st.subheader("AMSR2 Sea-Ice Map with ROI overlays")
+    st.image(draw_roi_boxes(image, REGIONS), use_container_width=True)
+
+arr = np.array(image)
 
 # =========================================================
 # Analysis
 # =========================================================
-step = st.slider("Sampling step (speed vs detail)", 2, 12, 4)
-
-try:
-    arr = load_image()
-except Exception:
-    st.error("Failed to load AMSR2 image. Please try again later.")
-    st.stop()
-
 rows = []
 for region, roi in REGIONS.items():
     raw = compute_raw_ice(arr, roi, step)
@@ -237,8 +225,7 @@ for _, r in df.iterrows():
 # =========================================================
 st.markdown("---")
 st.caption(
-    f"CUDA = {CUDA_ACRONYM}. "
-    f"Sea-ice image: University of Bremen AMSR2 daily PNG "
-    f"(image date: {amsr2_date or 'unknown'}). "
-    "POLAR CUDA provides situational awareness only."
+    f"POLAR CUDA {APP_VERSION} | "
+    "Sea-ice image: University of Bremen AMSR2 daily PNG | "
+    "Situational awareness only."
 )
