@@ -196,14 +196,18 @@ def save_text(lang, text):
 """
 
 # --------------------------------------------------
-# Language toggle (FINAL SAFE)
+# Language toggle (KEYERROR-SAFE)
 # --------------------------------------------------
 
+# 1. Initialize session state
 if "lang" not in st.session_state:
     st.session_state.lang = "en"
 
-lang = st.session_state.lang
+# 2. UI-safe lang value (force normalize)
+lang = st.session_state.lang if st.session_state.lang in ["en", "ko"] else "en"
+st.session_state.lang = lang
 
+# 3. Radio (display labels only)
 choice = st.radio(
     UI[lang]["lang_label"],
     ["English", "한국어"],
@@ -211,8 +215,15 @@ choice = st.radio(
     horizontal=True,
 )
 
-st.session_state.lang = "en" if choice == "English" else "ko"
+# 4. Map display → internal key
+if choice == "English":
+    st.session_state.lang = "en"
+else:
+    st.session_state.lang = "ko"
+
+# 5. Final normalized lang
 lang = st.session_state.lang
+
 
 
 # 4. 선택 결과를 세션 상태에 반영
