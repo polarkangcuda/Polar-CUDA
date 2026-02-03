@@ -1,7 +1,7 @@
 # ============================================================
 # Cosmic Mirror
 # Symbolic Reflection Interface (NOT divination)
-# Final stable version for Streamlit Cloud (Python 3.13 safe)
+# UTF-8 SAFE final version (Korean / Unicode supported)
 # ============================================================
 
 import streamlit as st
@@ -19,7 +19,7 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------------
-# Title & philosophical framing
+# Title & philosophy
 # ------------------------------------------------------------
 st.title("🪞 Cosmic Mirror")
 
@@ -36,7 +36,7 @@ st.markdown(
 st.divider()
 
 # ------------------------------------------------------------
-# API key check (Streamlit Cloud Secrets only)
+# API key check (Streamlit Cloud Secrets)
 # ------------------------------------------------------------
 API_KEY = st.secrets.get("OPENAI_API_KEY", "")
 
@@ -63,8 +63,8 @@ col1, col2 = st.columns(2)
 with col1:
     birth_date = st.date_input(
         "Date of birth",
-        value=date(1980, 1, 1),          # 중간 연도로 기본값 설정
-        min_value=date(1800, 1, 1),      # 과거 연도 자유 선택 가능
+        value=date(1980, 1, 1),
+        min_value=date(1800, 1, 1),
         max_value=date.today()
     )
     birth_time = st.time_input("Time of birth")
@@ -88,7 +88,7 @@ if st.button("🪐 Reflect", type="primary"):
         st.stop()
 
     # --------------------------------------------------------
-    # Prompts (safe single-line strings)
+    # Prompts (Unicode-safe)
     # --------------------------------------------------------
     system_prompt = (
         "You are Cosmic Mirror. "
@@ -106,7 +106,7 @@ if st.button("🪐 Reflect", type="primary"):
         f"- Time: {birth_time}\n"
         f"- Place: {birth_place}\n\n"
         "Human question:\n"
-        f"\"{current_question}\"\n\n"
+        f"{current_question}\n\n"
         "Reflect this situation using:\n"
         "- cosmic timescale\n"
         "- impermanence\n"
@@ -116,11 +116,11 @@ if st.button("🪐 Reflect", type="primary"):
     )
 
     # --------------------------------------------------------
-    # OpenAI API call (raw HTTPS, no openai package)
+    # OpenAI API call (UTF-8 enforced)
     # --------------------------------------------------------
     headers = {
         "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json; charset=utf-8"
     }
 
     payload = {
@@ -136,7 +136,7 @@ if st.button("🪐 Reflect", type="primary"):
         response = requests.post(
             "https://api.openai.com/v1/chat/completions",
             headers=headers,
-            json=payload,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             timeout=30
         )
 
@@ -160,4 +160,4 @@ if st.button("🪐 Reflect", type="primary"):
 
     except Exception as e:
         st.error("The mirror could not respond at this moment.")
-        st.caption(str(e))
+        st.caption(repr(e))
