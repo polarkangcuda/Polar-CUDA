@@ -4,7 +4,7 @@ import streamlit as st
 # Page config (MUST be called once, at the very top)
 # =========================================================
 st.set_page_config(
-    page_title="POLAR CUDA",
+    page_title="Polar CUDA",
     page_icon="❄️",
     layout="wide"
 )
@@ -14,15 +14,15 @@ st.set_page_config(
 # =========================================================
 import numpy as np
 import requests
-from PIL import Image, ImageDraw
+from PIL import Image
 from io import BytesIO
 import datetime
 import pandas as pd
 
 # =========================================================
-# App constants (v2.5)
+# POLAR CUDA v2.5-M (Minimal / Black-box)
 # =========================================================
-APP_VERSION = "v2.5"
+APP_VERSION = "v2.5-M"
 CUDA_ACRONYM = "Cryospheric Uncertainty–Driven Awareness"
 
 APP_TITLE = "POLAR CUDA – Arctic Ice Situational Awareness Gauge"
@@ -50,13 +50,31 @@ PHILOSOPHY_ONE_LINER = (
 )
 
 # =========================================================
+# Sidebar (Minimal mode)
+# =========================================================
+st.sidebar.title("POLAR CUDA")
+st.sidebar.caption(APP_VERSION)
+
+step = st.sidebar.slider(
+    "Sampling resolution",
+    min_value=2,
+    max_value=12,
+    value=4,
+    help="Higher = faster / Lower = more detailed (internal use only)"
+)
+
+st.sidebar.markdown("---")
+st.sidebar.caption("CUDA = Cryospheric Uncertainty–Driven Awareness")
+st.sidebar.caption("Situational awareness, not decision-making")
+
+# =========================================================
 # Data source
 # =========================================================
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 CACHE_TTL = 3600
 
 # =========================================================
-# Regions (ROIs)
+# Internal ROI definitions (BLACK BOX – DO NOT EXPOSE)
 # =========================================================
 REGIONS = {
     "Sea of Okhotsk": (620, 90, 900, 330),
@@ -74,10 +92,10 @@ REGIONS = {
 }
 
 REGION_GROUPS = {
-    "Pacific Arctic (situational bucket)": [
+    "Pacific Arctic": [
         "Bering Sea", "Chukchi Sea", "Beaufort Sea", "East Siberian Sea"
     ],
-    "Atlantic Arctic (situational bucket)": [
+    "Atlantic Arctic": [
         "Kara Sea", "Barents Sea", "Greenland Sea", "Baffin Bay"
     ],
 }
@@ -98,20 +116,13 @@ DEFAULT_CORRECTION = {
 }
 
 # =========================================================
-# Utilities
+# Image loading & processing
 # =========================================================
 @st.cache_data(ttl=CACHE_TTL)
 def load_image():
     r = requests.get(AMSR2_URL, timeout=20)
     r.raise_for_status()
-    return Image.open(BytesIO(r.content)).convert("RGB")
-
-def draw_roi_boxes(image, regions):
-    img = image.copy()
-    draw = ImageDraw.Draw(img)
-    for name, (x1, y1, x2, y2) in regions.items():
-        draw.rectangle([x1, y1, x2, y2], outline="red", width=2)
-    return img
+    return np.array(Image.open(BytesIO(r.content)).convert("RGB"))
 
 def classify_pixel(rgb):
     r, g, b = rgb
@@ -146,20 +157,7 @@ def friction_level(v):
     return "🔴 Extreme Constrained"
 
 # =========================================================
-# Sidebar (Control layer)
-# =========================================================
-st.sidebar.title("POLAR CUDA")
-st.sidebar.caption(APP_VERSION)
-
-show_roi = st.sidebar.checkbox("Show ROI boxes on map", value=False)
-step = st.sidebar.slider("Sampling step", 2, 12, 4)
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("**CUDA = Cryospheric Uncertainty–Driven Awareness**")
-st.sidebar.markdown("_Situational awareness, not decision-making_")
-
-# =========================================================
-# Main UI (Signal layer)
+# UI
 # =========================================================
 st.title(APP_TITLE)
 st.caption(APP_SUBTITLE)
@@ -173,19 +171,22 @@ if not st.checkbox("I understand and wish to continue"):
     st.stop()
 
 # =========================================================
-# Image & visualization
+# Dates
 # =========================================================
-image = load_image()
+today = datetime.date.today()
 
-if show_roi:
-    st.subheader("AMSR2 Sea-Ice Map with ROI overlays")
-    st.image(draw_roi_boxes(image, REGIONS), use_container_width=True)
-
-arr = np.array(image)
+st.markdown("---")
+st.write(f"**Analysis date:** {today}")
 
 # =========================================================
-# Analysis
+# Core analysis (BLACK BOX)
 # =========================================================
+try:
+    arr = load_image()
+except Exception:
+    st.error("Failed to load AMSR2 sea-ice image.")
+    st.stop()
+
 rows = []
 for region, roi in REGIONS.items():
     raw = compute_raw_ice(arr, roi, step)
@@ -197,10 +198,10 @@ for region, roi in REGIONS.items():
 df = pd.DataFrame(rows)
 
 # =========================================================
-# Group averages
+# Group-level awareness
 # =========================================================
 st.markdown("---")
-st.subheader("Regional group averages")
+st.subheader("Regional situational awareness")
 
 cols = st.columns(2)
 for i, (group, members) in enumerate(REGION_GROUPS.items()):
@@ -225,7 +226,7 @@ for _, r in df.iterrows():
 # =========================================================
 st.markdown("---")
 st.caption(
-    f"POLAR CUDA {APP_VERSION} | "
-    "Sea-ice image: University of Bremen AMSR2 daily PNG | "
-    "Situational awareness only."
+    f"POLAR CUDA {APP_VERSION}. "
+    "Situational awareness only. "
+    "This system supports recognizing uncertainty, not issuing decisions."
 )
