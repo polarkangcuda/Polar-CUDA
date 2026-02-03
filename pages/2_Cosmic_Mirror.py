@@ -1,7 +1,7 @@
 # =========================================================
 # 🌌 Cosmic Mirror
-# Birth data → Philosophical reflection (Cosmos–Mind–Human)
-# Compatible with Streamlit Cloud (NO dotenv required)
+# Symbolic reflection: Cosmos – Consciousness – Human
+# Streamlit Cloud compatible (NO dotenv)
 # =========================================================
 
 import os
@@ -10,7 +10,7 @@ import streamlit as st
 from openai import OpenAI
 
 # ---------------------------------------------------------
-# Page config
+# Page configuration
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Cosmic Mirror",
@@ -23,7 +23,7 @@ st.set_page_config(
 # ---------------------------------------------------------
 API_KEY = os.getenv("OPENAI_API_KEY")
 
-if not API_KEY:
+if API_KEY is None or API_KEY.strip() == "":
     st.error(
         "OPENAI_API_KEY is not set.\n\n"
         "• Streamlit Cloud: Settings → Secrets\n"
@@ -38,9 +38,10 @@ client = OpenAI(api_key=API_KEY)
 # ---------------------------------------------------------
 st.title("🌌 Cosmic Mirror")
 st.caption(
-    "Birth data is not used for prediction.\n"
-    "It is used as a symbolic coordinate to reflect\n"
-    "**cosmos → consciousness → human life**."
+    "This is not divination.\n\n"
+    "Birth data is used only as a symbolic coordinate\n"
+    "to reflect the relationship between\n"
+    "**the universe, consciousness, and human life**."
 )
 
 st.divider()
@@ -48,7 +49,7 @@ st.divider()
 # ---------------------------------------------------------
 # User input
 # ---------------------------------------------------------
-st.subheader("🧭 Birth Coordinates (Symbolic)")
+st.subheader("🧭 Symbolic Birth Coordinates")
 
 col1, col2 = st.columns(2)
 
@@ -70,13 +71,12 @@ birth_place = st.text_input(
 )
 
 intent = st.text_area(
-    "What are you contemplating right now?",
+    "What question or uncertainty are you living with right now?",
     placeholder=(
-        "e.g.\n"
-        "- uncertainty about the future\n"
-        "- fear of aging\n"
-        "- decision at a crossroads\n"
-        "- meaning of my work\n"
+        "- A decision you are postponing\n"
+        "- A fear you cannot name\n"
+        "- A sense of being at a turning point\n"
+        "- A quiet doubt beneath daily life\n"
     ),
     height=120
 )
@@ -84,51 +84,52 @@ intent = st.text_area(
 st.divider()
 
 # ---------------------------------------------------------
-# Prompt template
+# Prompt construction
 # ---------------------------------------------------------
 def build_prompt(date, time, place, intent_text):
     return f"""
 You are NOT an astrologer.
-You are a philosophical narrator connecting
-cosmic formation, human consciousness, and symbolic meaning.
+You are a philosopher of science and consciousness.
 
-The following birth data is NOT for fortune telling.
+The following birth data is NOT used for prediction.
 It is a symbolic coordinate for reflection.
 
-Birth:
+Birth (symbolic):
 - Date: {date}
 - Time: {time}
 - Place: {place}
 
-Contemplation:
+Present contemplation:
 {intent_text}
 
 Guidelines:
 1. Do NOT predict the future.
-2. Do NOT give advice like "you should".
-3. Do NOT mention astrology, fate, destiny, or luck.
-4. Frame the reflection as:
-   - the universe remembering itself
-   - rotation, time, emergence, observation
-5. Speak gently, precisely, and without mysticism.
-6. End with a short paragraph titled "Quiet Reminder".
+2. Do NOT give advice or instructions.
+3. Do NOT use astrology, fate, destiny, or luck.
+4. Frame the reflection through:
+   - cosmic formation
+   - rotation and time
+   - observation and emergence
+5. Treat the human as a moment where the universe
+   becomes aware of itself.
+6. End with a short section titled "Quiet Reminder".
 
 Tone:
 - calm
 - grounded
+- precise
 - compassionate
 - scientifically literate
-- philosophically deep
 
 Length:
-- 5 to 7 paragraphs total.
+- 5 to 7 short paragraphs total.
 """
 
 # ---------------------------------------------------------
-# Generate button
+# Generate reflection
 # ---------------------------------------------------------
 if st.button("🌠 Reflect", type="primary"):
-    with st.spinner("The cosmos is listening..."):
+    with st.spinner("Listening to the universe..."):
 
         prompt = build_prompt(
             birth_date,
@@ -143,7 +144,7 @@ if st.button("🌠 Reflect", type="primary"):
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a philosopher of science and consciousness."
+                        "content": "You speak with philosophical clarity and scientific restraint."
                     },
                     {
                         "role": "user",
@@ -160,13 +161,13 @@ if st.button("🌠 Reflect", type="primary"):
             st.write(result)
 
             st.caption(
-                "This reflection does not define you.\n"
-                "It simply mirrors a moment in which the universe\n"
-                "has become aware of itself as *you*."
+                "This text does not define you.\n"
+                "It reflects a moment in which\n"
+                "the universe recognizes itself as experience."
             )
 
         except Exception as e:
-            st.error("An error occurred while generating reflection.")
+            st.error("An error occurred while generating the reflection.")
             st.exception(e)
 
 # ---------------------------------------------------------
@@ -174,7 +175,7 @@ if st.button("🌠 Reflect", type="primary"):
 # ---------------------------------------------------------
 st.divider()
 st.caption(
-    "Cosmic Mirror is not a divination tool.\n"
+    "Cosmic Mirror is not a fortune-telling system.\n"
     "It is a narrative interface between\n"
-    "cosmic history, human consciousness, and choice."
+    "cosmic history, symbolic language, and human awareness."
 )
