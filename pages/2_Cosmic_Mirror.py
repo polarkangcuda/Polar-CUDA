@@ -1,6 +1,55 @@
+# ============================================================
+# Cosmic Mirror
+# Symbolic Reflection Interface (NOT divination)
+# Safe for Python 3.13 + Streamlit Cloud
+# ============================================================
 
-Until then, this page remains **safely inactive**.
-"""
+import streamlit as st
+import requests
+import json
+from datetime import datetime
+
+# ------------------------------------------------------------
+# Page config
+# ------------------------------------------------------------
+st.set_page_config(
+    page_title="Cosmic Mirror",
+    page_icon="🪞",
+    layout="centered"
+)
+
+# ------------------------------------------------------------
+# Title & philosophy (NO triple-quoted strings)
+# ------------------------------------------------------------
+st.title("🪞 Cosmic Mirror")
+
+st.markdown(
+    "**This is not divination.**  \n\n"
+    "Birth information is treated only as a **symbolic coordinate** — "
+    "a mirror to reflect the relationship between the **universe**, "
+    "**consciousness**, and **human life**.\n\n"
+    "No future is predicted.  \n"
+    "No authority is invoked.  \n"
+    "Only reflection and responsibility."
+)
+
+st.divider()
+
+# ------------------------------------------------------------
+# API key check (Streamlit Cloud Secrets only)
+# ------------------------------------------------------------
+API_KEY = st.secrets.get("OPENAI_API_KEY", "")
+
+if not API_KEY:
+    st.warning(
+        "🔑 **OpenAI API key is not configured yet.**\n\n"
+        "To activate **Cosmic Mirror**:\n\n"
+        "1. Open **Streamlit Cloud**\n"
+        "2. Go to **My apps → Polar-CUDA → Manage app**\n"
+        "3. Click **Settings → Secrets**\n"
+        "4. Add:\n\n"
+        "`OPENAI_API_KEY = \"sk-...\"`\n\n"
+        "Until then, this page remains **safely inactive**."
     )
     st.stop()
 
@@ -29,53 +78,40 @@ st.divider()
 # ------------------------------------------------------------
 if st.button("🪐 Reflect", type="primary"):
 
-    if current_question.strip() == "":
+    if not current_question.strip():
         st.warning("Please enter a question to reflect on.")
         st.stop()
 
     # --------------------------------------------------------
-    # Prompt (anti-divination, anti-prediction)
+    # Prompts (single-line safe strings)
     # --------------------------------------------------------
-    system_prompt = """
-You are Cosmic Mirror.
+    system_prompt = (
+        "You are Cosmic Mirror. "
+        "You do not predict the future. "
+        "You do not give instructions or advice. "
+        "You do not claim hidden knowledge. "
+        "You reflect the relationship between cosmic time, "
+        "human consciousness, and responsibility. "
+        "Your role is to transform anxiety into understanding."
+    )
 
-You do NOT predict the future.
-You do NOT give advice or instructions.
-You do NOT claim hidden knowledge.
-
-You reflect the relationship between:
-- cosmic time,
-- human consciousness,
-- symbolic meaning.
-
-You speak calmly, clearly, and responsibly.
-
-Your task:
-Transform anxiety into understanding.
-Transform dependence into agency.
-"""
-
-    user_prompt = f"""
-Symbolic coordinates (not causal):
-- Date: {birth_date}
-- Time: {birth_time}
-- Place: {birth_place}
-
-Human question:
-"{current_question}"
-
-Reflect this situation using:
-- cosmic timescale
-- impermanence
-- responsibility
-- observation over prediction
-
-Do not answer with fortune-telling.
-Do not promise outcomes.
-"""
+    user_prompt = (
+        "Symbolic coordinates (not causal):\n"
+        f"- Date: {birth_date}\n"
+        f"- Time: {birth_time}\n"
+        f"- Place: {birth_place}\n\n"
+        "Human question:\n"
+        f"\"{current_question}\"\n\n"
+        "Reflect this situation using:\n"
+        "- cosmic timescale\n"
+        "- impermanence\n"
+        "- observation over prediction\n\n"
+        "Do not perform fortune-telling.\n"
+        "Do not promise outcomes."
+    )
 
     # --------------------------------------------------------
-    # OpenAI API call (raw HTTPS, no openai package)
+    # OpenAI API call (raw HTTPS)
     # --------------------------------------------------------
     headers = {
         "Authorization": f"Bearer {API_KEY}",
@@ -95,16 +131,16 @@ Do not promise outcomes.
         response = requests.post(
             "https://api.openai.com/v1/chat/completions",
             headers=headers,
-            data=json.dumps(payload),
+            json=payload,
             timeout=30
         )
 
         if response.status_code != 200:
-            st.error("The mirror remains silent. (API response error)")
+            st.error("The mirror remains silent (API response error).")
             st.stop()
 
-        result = response.json()
-        reflection = result["choices"][0]["message"]["content"]
+        data = response.json()
+        reflection = data["choices"][0]["message"]["content"]
 
         # ----------------------------------------------------
         # Display reflection
