@@ -1,145 +1,258 @@
 import streamlit as st
 from datetime import date, time
+from io import BytesIO
 
-# --------------------------------------------------
-# Page config
-# --------------------------------------------------
+# =========================================================
+# App Config
+# =========================================================
 st.set_page_config(
-    page_title="Cosmic Mirror",
-    page_icon="🪞",
+    page_title="Cosmic Mirror — Reflection Without Prediction",
     layout="wide"
 )
 
-# --------------------------------------------------
-# Header
-# --------------------------------------------------
-st.title("🪞 Cosmic Mirror")
-
-st.write("**This is not divination.**")
-st.write(
-    "Birth information is treated only as a symbolic coordinate — "
-    "a mirror to reflect the relationship between the universe, "
-    "consciousness, and human life."
+# =========================================================
+# Language Toggle
+# =========================================================
+LANG = st.radio(
+    "Language / 언어",
+    ["English", "한국어"],
+    horizontal=True
 )
-st.write("- No future is predicted.")
-st.write("- No authority is invoked.")
-st.write("- Only reflection and responsibility.")
+
+# =========================================================
+# Text Dictionary
+# =========================================================
+TEXT = {
+    "title": {
+        "English": "Cosmic Mirror — Reflection Without Prediction",
+        "한국어": "코스믹 미러 — 예측 없는 성찰"
+    },
+    "subtitle": {
+        "English": "This is not divination.",
+        "한국어": "이것은 점술이 아닙니다."
+    },
+    "principles": {
+        "English": [
+            "Birth information is treated only as a symbolic coordinate —",
+            "a mirror to reflect the relationship between the universe, consciousness, and human life.",
+            "No future is predicted.",
+            "No authority is invoked.",
+            "Only reflection and responsibility."
+        ],
+        "한국어": [
+            "출생 정보는 상징적 좌표로만 사용됩니다 —",
+            "우주, 의식, 인간 삶의 관계를 비추는 거울입니다.",
+            "미래를 예측하지 않습니다.",
+            "어떠한 권위도 호출하지 않습니다.",
+            "오직 성찰과 책임만을 다룹니다."
+        ]
+    },
+    "section_input": {
+        "English": "Symbolic Birth Coordinates",
+        "한국어": "상징적 출생 좌표"
+    },
+    "dob": {
+        "English": "Date of birth",
+        "한국어": "생년월일"
+    },
+    "tob": {
+        "English": "Time of birth",
+        "한국어": "출생 시간"
+    },
+    "place": {
+        "English": "Place of birth (symbolic)",
+        "한국어": "출생지 (상징)"
+    },
+    "question": {
+        "English": "What question is alive in you now?",
+        "한국어": "지금 당신 안에 살아 있는 질문은 무엇입니까?"
+    },
+    "reflect": {
+        "English": "Reflect",
+        "한국어": "성찰하기"
+    },
+    "reflection": {
+        "English": "Reflection",
+        "한국어": "성찰"
+    },
+    "download": {
+        "English": "Save Reflection",
+        "한국어": "성찰 기록 저장"
+    }
+}
+
+# =========================================================
+# Header
+# =========================================================
+st.title(TEXT["title"][LANG])
+st.markdown(f"**{TEXT['subtitle'][LANG]}**")
+
+for line in TEXT["principles"][LANG]:
+    st.markdown(f"- {line}")
 
 st.divider()
 
-# --------------------------------------------------
-# Input section
-# --------------------------------------------------
-st.header("Symbolic Birth Coordinates")
+# =========================================================
+# Inputs
+# =========================================================
+st.header(TEXT["section_input"][LANG])
 
 col1, col2 = st.columns(2)
 
 with col1:
     dob = st.date_input(
-        "Date of birth",
+        TEXT["dob"][LANG],
         value=date(1960, 1, 1),
         min_value=date(1900, 1, 1),
         max_value=date.today()
     )
 
     tob = st.time_input(
-        "Time of birth",
+        TEXT["tob"][LANG],
         value=time(6, 0)
     )
 
 with col2:
-    pob = st.text_input(
-        "Place of birth (symbolic)",
-        value=""
-    )
-
-    question = st.text_area(
-        "What question is alive in you now?",
-        placeholder="Not 'What will happen?', but 'How should I stand where I am?'",
-        height=120
-    )
+    place = st.text_input(TEXT["place"][LANG], value="")
+    question = st.text_area(TEXT["question"][LANG], height=120)
 
 st.divider()
 
-# --------------------------------------------------
-# Reflection engine (NO AI, NO API)
-# --------------------------------------------------
-def cosmic_reflection(dob, tob, pob, question):
+# =========================================================
+# Reflection Logic
+# =========================================================
+def generate_reflection(lang, dob, place, question):
     year = dob.year
-    hour = tob.hour
-    today_year = date.today().year
-    age = today_year - year
 
-    # Time symbolism
-    if hour < 6:
-        time_symbol = "the quiet threshold between night and beginning"
-    elif hour < 12:
-        time_symbol = "the slow rising of clarity and responsibility"
-    elif hour < 18:
-        time_symbol = "the long arc of engagement and consequence"
-    else:
-        time_symbol = "the descent toward reflection and release"
-
-    # Life phase
-    if age < 40:
-        life_phase = "a period of accumulation and formation"
-    elif age < 60:
-        life_phase = "a period of discernment and weight-bearing choices"
-    else:
-        life_phase = "a period of integration, transmission, and restraint"
-
-    # Place line
-    if pob.strip() == "":
-        place_line = (
-            "You did not name a place. "
-            "This suggests that your question is anchored not to geography, "
-            "but to time and inner stance."
-        )
-    else:
-        place_line = (
-            f"You named '{pob}' not as destiny, "
-            "but as a reminder that every life begins somewhere, "
-            "yet is never confined there."
-        )
-
-    # Question line
     if question.strip() == "":
-        question_line = (
-            "You did not pose a question. "
-            "Silence itself can be a form of inquiry."
-        )
-    else:
-        question_line = (
-            "You brought this living question:\n\n"
-            f"\"{question}\"\n\n"
-            "This is not a request for prediction, "
-            "but a signal of readiness to carry uncertainty."
-        )
+        if lang == "English":
+            return f"""
+You were born in {year}.
 
-    # Assemble reflection safely
-    reflection = (
-        "### 🪞 Reflection\n\n"
-        f"You were born in {year}, at a moment shaped by {time_symbol}.\n\n"
-        f"You are now in {life_phase}.\n\n"
-        f"{place_line}\n\n"
-        f"{question_line}\n\n"
-        "What matters now is not what the universe will give you.\n\n"
-        "What matters is:\n"
-        "- What weight you can now carry without resentment.\n"
-        "- What you can release without denial.\n"
-        "- What you must do without waiting for permission.\n\n"
-        "The universe does not speak in instructions.\n"
-        "It responds to clarity of stance.\n\n"
-        "This mirror does not tell you who you are.\n"
-        "It asks whether you are willing to stand where you already are."
+You chose not to bring a question.
+
+This is not absence.
+It is restraint.
+
+Silence can be a form of readiness.
+Not everything meaningful arrives as language.
+
+At this moment, what matters is not articulation,
+but the willingness to stand without needing resolution.
+
+The mirror reflects nothing urgent —
+and that, too, is information.
+"""
+        else:
+            return f"""
+당신은 {year}년에 태어났습니다.
+
+당신은 질문을 가져오지 않았습니다.
+
+이것은 결핍이 아니라 절제입니다.
+침묵은 준비의 한 형태일 수 있습니다.
+
+모든 중요한 것이 언어로 도착하지는 않습니다.
+
+지금 중요한 것은 설명이 아니라,
+해결을 요구하지 않고 서 있으려는 태도입니다.
+
+이 거울은 긴급한 답을 비추지 않습니다 —
+그 자체로 하나의 신호입니다.
+"""
+    else:
+        if lang == "English":
+            return f"""
+You were born in {year}, at a moment shaped by gradual responsibility.
+
+You named "{place}" not as destiny,
+but as a reminder that life begins somewhere,
+yet is never confined there.
+
+You brought this living question:
+
+"{question}"
+
+This is not a request for prediction,
+but a signal of readiness to carry uncertainty.
+
+What matters now is not what the universe will give you,
+but what stance you are willing to hold.
+
+The universe does not speak in instructions.
+It responds to clarity of stance.
+
+This mirror does not tell you who you are.
+It asks whether you are willing to stand where you already are.
+"""
+        else:
+            return f"""
+당신은 {year}년에 태어났습니다.
+점진적인 책임이 형성되던 시기였습니다.
+
+당신은 "{place}"를 운명이 아니라,
+삶이 시작된 지점을 기억하기 위한 표식으로 두었습니다.
+
+당신이 가져온 살아 있는 질문은 다음과 같습니다:
+
+"{question}"
+
+이것은 예측을 요구하는 질문이 아니라,
+불확실성을 감당할 준비가 되었다는 신호입니다.
+
+지금 중요한 것은
+우주가 무엇을 줄 것인가가 아니라,
+당신이 어떤 태도로 서 있을 것인가입니다.
+
+우주는 지시하지 않습니다.
+명료한 입장에 반응할 뿐입니다.
+
+이 거울은 당신이 누구인지 말하지 않습니다.
+이미 서 있는 그 자리에 설 의지가 있는지를 묻습니다.
+"""
+
+# =========================================================
+# Reflect Button
+# =========================================================
+if st.button(TEXT["reflect"][LANG]):
+    reflection_text = generate_reflection(LANG, dob, place, question)
+    st.subheader(TEXT["reflection"][LANG])
+    st.markdown(reflection_text)
+
+    # Save TXT
+    txt_bytes = reflection_text.encode("utf-8")
+    st.download_button(
+        label=f"{TEXT['download'][LANG]} (TXT)",
+        data=txt_bytes,
+        file_name="cosmic_mirror_reflection.txt",
+        mime="text/plain"
     )
 
-    return reflection
+    # Save PDF
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
 
-# --------------------------------------------------
-# Action
-# --------------------------------------------------
-if st.button("🚀 Reflect"):
-    with st.spinner("Holding the mirror steady..."):
-        text = cosmic_reflection(dob, tob, pob, question)
-    st.markdown(text)
+        buffer = BytesIO()
+        c = canvas.Canvas(buffer, pagesize=A4)
+        width, height = A4
+
+        y = height - 50
+        for line in reflection_text.split("\n"):
+            c.drawString(40, y, line)
+            y -= 14
+            if y < 40:
+                c.showPage()
+                y = height - 50
+
+        c.save()
+        buffer.seek(0)
+
+        st.download_button(
+            label=f"{TEXT['download'][LANG]} (PDF)",
+            data=buffer,
+            file_name="cosmic_mirror_reflection.pdf",
+            mime="application/pdf"
+        )
+    except Exception:
+        pass
