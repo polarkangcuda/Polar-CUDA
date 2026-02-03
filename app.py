@@ -1,4 +1,17 @@
 import streamlit as st
+
+# =========================================================
+# Page config (MUST be called once, at the very top)
+# =========================================================
+st.set_page_config(
+    page_title="Polar CUDA",
+    page_icon="❄️",
+    layout="wide"
+)
+
+# =========================================================
+# Imports
+# =========================================================
 import numpy as np
 import requests
 from PIL import Image
@@ -34,14 +47,9 @@ PHILOSOPHY_ONE_LINER = (
     "it helps you recognize when not to decide yet."
 )
 
-# ---------------------------------------------------------
-# Page config
-# ---------------------------------------------------------
-st.set_page_config(page_title=APP_TITLE, layout="centered")
-
-# ---------------------------------------------------------
-# PWA metadata only (NO install UI)
-# ---------------------------------------------------------
+# =========================================================
+# Optional PWA metadata (NO install UI)
+# =========================================================
 st.markdown(
     """
 <link rel="manifest" href="/manifest.json">
@@ -56,21 +64,25 @@ st.markdown(
 AMSR2_URL = "https://data.seaice.uni-bremen.de/amsr2/today/Arctic_AMSR2_nic.png"
 CACHE_TTL = 3600
 
-# ---------------------------------------------------------
+# =========================================================
 # AMSR2 image date
-# ---------------------------------------------------------
+# =========================================================
 def get_amsr2_image_date():
     try:
-        r = requests.head(AMSR2_URL, timeout=10)
+        r = requests.head(
+            AMSR2_URL,
+            timeout=10,
+            allow_redirects=True
+        )
         if "Last-Modified" in r.headers:
             return pd.to_datetime(r.headers["Last-Modified"]).date()
     except Exception:
         pass
     return None
 
-# ---------------------------------------------------------
+# =========================================================
 # Regions (ROIs)
-# ---------------------------------------------------------
+# =========================================================
 REGIONS = {
     "Sea of Okhotsk": (620, 90, 900, 330),
     "Bering Sea": (480, 300, 720, 520),
@@ -110,6 +122,9 @@ DEFAULT_CORRECTION = {
     "Baffin Bay": 0.80,
 }
 
+# =========================================================
+# Image loading & processing
+# =========================================================
 @st.cache_data(ttl=CACHE_TTL)
 def load_image():
     r = requests.get(AMSR2_URL, timeout=20)
@@ -127,17 +142,19 @@ def classify_pixel(rgb):
 def compute_raw_ice(arr, roi, step=4):
     x1, y1, x2, y2 = roi
     ice = water = 0
-    h, w, _ = arr.shape
     for y in range(y1, y2, step):
         for x in range(x1, x2, step):
             c = classify_pixel(arr[y, x])
-            if c == "ice": ice += 1
-            elif c == "water": water += 1
+            if c == "ice":
+                ice += 1
+            elif c == "water":
+                water += 1
     if ice + water == 0:
         return None
     return (ice / (ice + water)) * 100
 
-def clamp(v): return max(0, min(100, v))
+def clamp(v):
+    return max(0, min(100, v))
 
 def friction_level(v):
     if v <= 15: return "🟢 Extreme Open"
@@ -160,20 +177,26 @@ with st.expander("⚠ Disclaimer & Scope", expanded=True):
 if not st.checkbox("I understand and wish to continue"):
     st.stop()
 
-# ---------------------------------------------------------
+# =========================================================
 # Dates
-# ---------------------------------------------------------
+# =========================================================
 today = datetime.date.today()
 amsr2_date = get_amsr2_image_date()
+
 st.markdown("---")
 st.write(f"**Analysis date (app run):** {today}")
 st.write(f"**Sea-ice image date (AMSR2):** {amsr2_date or 'Unknown'}")
 
-# ---------------------------------------------------------
+# =========================================================
 # Analysis
-# ---------------------------------------------------------
+# =========================================================
 step = st.slider("Sampling step (speed vs detail)", 2, 12, 4)
-arr = load_image()
+
+try:
+    arr = load_image()
+except Exception:
+    st.error("Failed to load AMSR2 image. Please try again later.")
+    st.stop()
 
 rows = []
 for region, roi in REGIONS.items():
@@ -185,9 +208,9 @@ for region, roi in REGIONS.items():
 
 df = pd.DataFrame(rows)
 
-# ---------------------------------------------------------
+# =========================================================
 # Group averages
-# ---------------------------------------------------------
+# =========================================================
 st.markdown("---")
 st.subheader("Regional group averages")
 
@@ -199,9 +222,9 @@ for i, (group, members) in enumerate(REGION_GROUPS.items()):
         st.write(friction_level(avg))
         st.progress(int(avg))
 
-# ---------------------------------------------------------
+# =========================================================
 # Individual regions
-# ---------------------------------------------------------
+# =========================================================
 st.markdown("---")
 st.subheader("Sea-region situational gauges")
 
@@ -209,9 +232,9 @@ for _, r in df.iterrows():
     st.write(f"**{r['Region']}** → {friction_level(r['Hybrid'])} | {r['Hybrid']}%")
     st.progress(int(r["Hybrid"]))
 
-# ---------------------------------------------------------
+# =========================================================
 # Footer
-# ---------------------------------------------------------
+# =========================================================
 st.markdown("---")
 st.caption(
     f"CUDA = {CUDA_ACRONYM}. "
