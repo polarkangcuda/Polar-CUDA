@@ -1,13 +1,12 @@
 # =========================================================
 # 🌌 Cosmic Mirror
-# Symbolic reflection: Cosmos – Consciousness – Human
-# Streamlit Cloud compatible (NO dotenv)
+# Cosmos – Consciousness – Human (Legacy OpenAI SDK safe)
 # =========================================================
 
 import os
 import datetime
 import streamlit as st
-from openai import OpenAI
+import openai
 
 # ---------------------------------------------------------
 # Page configuration
@@ -21,9 +20,9 @@ st.set_page_config(
 # ---------------------------------------------------------
 # API key check
 # ---------------------------------------------------------
-API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-if API_KEY is None or API_KEY.strip() == "":
+if OPENAI_API_KEY is None or OPENAI_API_KEY.strip() == "":
     st.error(
         "OPENAI_API_KEY is not set.\n\n"
         "• Streamlit Cloud: Settings → Secrets\n"
@@ -31,7 +30,7 @@ if API_KEY is None or API_KEY.strip() == "":
     )
     st.stop()
 
-client = OpenAI(api_key=API_KEY)
+openai.api_key = OPENAI_API_KEY
 
 # ---------------------------------------------------------
 # Header
@@ -139,7 +138,7 @@ if st.button("🌠 Reflect", type="primary"):
         )
 
         try:
-            response = client.chat.completions.create(
+            response = openai.ChatCompletion.create(
                 model="gpt-4.1-mini",
                 messages=[
                     {
@@ -154,7 +153,7 @@ if st.button("🌠 Reflect", type="primary"):
                 temperature=0.7
             )
 
-            result = response.choices[0].message.content
+            result = response["choices"][0]["message"]["content"]
 
             st.divider()
             st.subheader("🪞 Reflection")
