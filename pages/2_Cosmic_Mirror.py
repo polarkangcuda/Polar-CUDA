@@ -1,258 +1,174 @@
 import streamlit as st
-from datetime import date, time
-from io import BytesIO
+from datetime import date
+from io import StringIO
 
-# =========================================================
-# App Config
-# =========================================================
+# --------------------------------------------------
+# Page config
+# --------------------------------------------------
 st.set_page_config(
     page_title="Cosmic Mirror — Reflection Without Prediction",
     layout="wide"
 )
 
-# =========================================================
-# Language Toggle
-# =========================================================
-LANG = st.radio(
+# --------------------------------------------------
+# Language selector
+# --------------------------------------------------
+lang = st.radio(
     "Language / 언어",
     ["English", "한국어"],
     horizontal=True
 )
 
-# =========================================================
-# Text Dictionary
-# =========================================================
-TEXT = {
-    "title": {
-        "English": "Cosmic Mirror — Reflection Without Prediction",
-        "한국어": "코스믹 미러 — 예측 없는 성찰"
-    },
-    "subtitle": {
-        "English": "This is not divination.",
-        "한국어": "이것은 점술이 아닙니다."
-    },
-    "principles": {
-        "English": [
-            "Birth information is treated only as a symbolic coordinate —",
-            "a mirror to reflect the relationship between the universe, consciousness, and human life.",
-            "No future is predicted.",
-            "No authority is invoked.",
-            "Only reflection and responsibility."
-        ],
-        "한국어": [
-            "출생 정보는 상징적 좌표로만 사용됩니다 —",
-            "우주, 의식, 인간 삶의 관계를 비추는 거울입니다.",
-            "미래를 예측하지 않습니다.",
-            "어떠한 권위도 호출하지 않습니다.",
-            "오직 성찰과 책임만을 다룹니다."
-        ]
-    },
-    "section_input": {
-        "English": "Symbolic Birth Coordinates",
-        "한국어": "상징적 출생 좌표"
-    },
-    "dob": {
-        "English": "Date of birth",
-        "한국어": "생년월일"
-    },
-    "tob": {
-        "English": "Time of birth",
-        "한국어": "출생 시간"
-    },
-    "place": {
-        "English": "Place of birth (symbolic)",
-        "한국어": "출생지 (상징)"
-    },
-    "question": {
-        "English": "What question is alive in you now?",
-        "한국어": "지금 당신 안에 살아 있는 질문은 무엇입니까?"
-    },
-    "reflect": {
-        "English": "Reflect",
-        "한국어": "성찰하기"
-    },
-    "reflection": {
-        "English": "Reflection",
-        "한국어": "성찰"
-    },
-    "download": {
-        "English": "Save Reflection",
-        "한국어": "성찰 기록 저장"
-    }
-}
+def t(en, ko):
+    return en if lang == "English" else ko
 
-# =========================================================
+# --------------------------------------------------
 # Header
-# =========================================================
-st.title(TEXT["title"][LANG])
-st.markdown(f"**{TEXT['subtitle'][LANG]}**")
+# --------------------------------------------------
+st.title(t(
+    "Cosmic Mirror — Reflection Without Prediction",
+    "Cosmic Mirror — 예언 없는 성찰"
+))
 
-for line in TEXT["principles"][LANG]:
-    st.markdown(f"- {line}")
+st.markdown(t(
+    """
+This is not divination.
+
+• Birth information is treated only as a symbolic coordinate  
+• A mirror to reflect responsibility, not destiny  
+• No future is predicted  
+• No authority is invoked  
+• Only reflection and responsibility
+""",
+    """
+이것은 점술이 아닙니다.
+
+• 출생 정보는 상징적 좌표로만 사용됩니다  
+• 운명이 아닌 책임을 비추는 거울입니다  
+• 미래를 예측하지 않습니다  
+• 권위를 부여하지 않습니다  
+• 오직 성찰과 책임만을 다룹니다
+"""
+))
 
 st.divider()
 
-# =========================================================
+# --------------------------------------------------
 # Inputs
-# =========================================================
-st.header(TEXT["section_input"][LANG])
+# --------------------------------------------------
+st.subheader(t("Symbolic Birth Coordinates", "상징적 출생 좌표"))
 
 col1, col2 = st.columns(2)
 
 with col1:
-    dob = st.date_input(
-        TEXT["dob"][LANG],
+    birth_date = st.date_input(
+        t("Date of birth", "생년월일"),
         value=date(1960, 1, 1),
         min_value=date(1900, 1, 1),
         max_value=date.today()
     )
 
-    tob = st.time_input(
-        TEXT["tob"][LANG],
-        value=time(6, 0)
+    birth_time = st.selectbox(
+        t("Time of birth", "출생 시각"),
+        [f"{h:02d}:00" for h in range(0, 24)]
     )
 
 with col2:
-    place = st.text_input(TEXT["place"][LANG], value="")
-    question = st.text_area(TEXT["question"][LANG], height=120)
+    place = st.text_input(
+        t("Place of birth (symbolic)", "출생지 (상징)"),
+        placeholder=t(
+            "A place that represents where you began",
+            "삶이 시작되었다고 느끼는 장소"
+        )
+    )
+
+    question = st.text_area(
+        t("What question is alive in you now?", "지금 마음속에 살아 있는 질문"),
+        placeholder=t(
+            "You may leave this empty.",
+            "비워 두어도 괜찮습니다."
+        )
+    )
 
 st.divider()
 
-# =========================================================
-# Reflection Logic
-# =========================================================
-def generate_reflection(lang, dob, place, question):
-    year = dob.year
+# --------------------------------------------------
+# Reflection logic
+# --------------------------------------------------
+def generate_reflection(birth_date, place, question):
+    year = birth_date.year
 
     if question.strip() == "":
-        if lang == "English":
-            return f"""
-You were born in {year}.
-
-You chose not to bring a question.
-
-This is not absence.
-It is restraint.
-
-Silence can be a form of readiness.
-Not everything meaningful arrives as language.
-
-At this moment, what matters is not articulation,
-but the willingness to stand without needing resolution.
-
-The mirror reflects nothing urgent —
-and that, too, is information.
-"""
-        else:
-            return f"""
-당신은 {year}년에 태어났습니다.
-
-당신은 질문을 가져오지 않았습니다.
-
-이것은 결핍이 아니라 절제입니다.
-침묵은 준비의 한 형태일 수 있습니다.
-
-모든 중요한 것이 언어로 도착하지는 않습니다.
-
-지금 중요한 것은 설명이 아니라,
-해결을 요구하지 않고 서 있으려는 태도입니다.
-
-이 거울은 긴급한 답을 비추지 않습니다 —
-그 자체로 하나의 신호입니다.
-"""
+        question_block = t(
+            "You chose not to ask a question. That restraint itself is a form of clarity.",
+            "질문을 비워두는 선택 자체가 이미 하나의 분명한 태도입니다."
+        )
     else:
-        if lang == "English":
-            return f"""
-You were born in {year}, at a moment shaped by gradual responsibility.
+        question_block = t(
+            f'You brought this living question:\n"{question}"',
+            f'당신은 다음 질문을 가져왔습니다:\n"{question}"'
+        )
 
-You named "{place}" not as destiny,
-but as a reminder that life begins somewhere,
-yet is never confined there.
+    place_block = ""
+    if place.strip() != "":
+        place_block = t(
+            f'You named "{place}" — not as destiny, but as a reminder that every life begins somewhere, yet is never confined there.',
+            f'"{place}"를 출생지로 적었습니다. 그것은 운명이 아니라, 삶은 어딘가에서 시작되지만 거기에 갇히지는 않는다는 상기입니다.'
+        )
 
-You brought this living question:
+    return t(
+        f"""
+You were born in {year}, a time shaped by gradual responsibility and long arcs rather than sudden certainty.
 
-"{question}"
+{place_block}
 
-This is not a request for prediction,
-but a signal of readiness to carry uncertainty.
+{question_block}
 
-What matters now is not what the universe will give you,
-but what stance you are willing to hold.
+This mirror does not predict what comes next.
+
+It asks:
+• What weight can you now carry without resentment?
+• What can you release without denial?
+• Where can you stand without waiting for permission?
 
 The universe does not speak in instructions.
 It responds to clarity of stance.
+""",
+        f"""
+당신은 {year}년에 태어났습니다. 그 시기는 급한 확신보다 점진적인 책임이 형성되던 시기였습니다.
 
-This mirror does not tell you who you are.
-It asks whether you are willing to stand where you already are.
-"""
-        else:
-            return f"""
-당신은 {year}년에 태어났습니다.
-점진적인 책임이 형성되던 시기였습니다.
+{place_block}
 
-당신은 "{place}"를 운명이 아니라,
-삶이 시작된 지점을 기억하기 위한 표식으로 두었습니다.
+{question_block}
 
-당신이 가져온 살아 있는 질문은 다음과 같습니다:
+이 거울은 미래를 말하지 않습니다.
 
-"{question}"
-
-이것은 예측을 요구하는 질문이 아니라,
-불확실성을 감당할 준비가 되었다는 신호입니다.
-
-지금 중요한 것은
-우주가 무엇을 줄 것인가가 아니라,
-당신이 어떤 태도로 서 있을 것인가입니다.
+대신 묻습니다:
+• 이제 원망 없이 감당할 수 있는 무게는 무엇입니까?
+• 부정하지 않고 내려놓을 수 있는 것은 무엇입니까?
+• 허락을 기다리지 않고 설 수 있는 자리는 어디입니까?
 
 우주는 지시하지 않습니다.
-명료한 입장에 반응할 뿐입니다.
-
-이 거울은 당신이 누구인지 말하지 않습니다.
-이미 서 있는 그 자리에 설 의지가 있는지를 묻습니다.
+입장의 명료함에 응답할 뿐입니다.
 """
+    )
 
-# =========================================================
-# Reflect Button
-# =========================================================
-if st.button(TEXT["reflect"][LANG]):
-    reflection_text = generate_reflection(LANG, dob, place, question)
-    st.subheader(TEXT["reflection"][LANG])
-    st.markdown(reflection_text)
+# --------------------------------------------------
+# Action
+# --------------------------------------------------
+if st.button(t("Reflect", "성찰하기")):
+    reflection = generate_reflection(birth_date, place, question)
+
+    st.subheader(t("Reflection", "성찰"))
+    st.markdown(reflection)
 
     # Save TXT
-    txt_bytes = reflection_text.encode("utf-8")
+    buffer = StringIO()
+    buffer.write(reflection)
+
     st.download_button(
-        label=f"{TEXT['download'][LANG]} (TXT)",
-        data=txt_bytes,
+        t("Save Reflection (TXT)", "성찰 저장 (TXT)"),
+        buffer.getvalue(),
         file_name="cosmic_mirror_reflection.txt",
         mime="text/plain"
     )
-
-    # Save PDF
-    try:
-        from reportlab.lib.pagesizes import A4
-        from reportlab.pdfgen import canvas
-
-        buffer = BytesIO()
-        c = canvas.Canvas(buffer, pagesize=A4)
-        width, height = A4
-
-        y = height - 50
-        for line in reflection_text.split("\n"):
-            c.drawString(40, y, line)
-            y -= 14
-            if y < 40:
-                c.showPage()
-                y = height - 50
-
-        c.save()
-        buffer.seek(0)
-
-        st.download_button(
-            label=f"{TEXT['download'][LANG]} (PDF)",
-            data=buffer,
-            file_name="cosmic_mirror_reflection.pdf",
-            mime="application/pdf"
-        )
-    except Exception:
-        pass
