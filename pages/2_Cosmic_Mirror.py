@@ -196,23 +196,24 @@ def save_text(lang, text):
 """
 
 # --------------------------------------------------
-# Language toggle (SAFE version)
+# Language toggle (FINAL SAFE)
 # --------------------------------------------------
 
-# 1. 세션 상태 초기화
 if "lang" not in st.session_state:
     st.session_state.lang = "en"
 
-# 2. 안전한 지역 변수로 분리
 lang = st.session_state.lang
 
-# 3. UI 접근은 반드시 lang 변수 사용
 choice = st.radio(
     UI[lang]["lang_label"],
     ["English", "한국어"],
     index=0 if lang == "en" else 1,
     horizontal=True,
 )
+
+st.session_state.lang = "en" if choice == "English" else "ko"
+lang = st.session_state.lang
+
 
 # 4. 선택 결과를 세션 상태에 반영
 st.session_state.lang = "en" if choice == "English" else "ko"
