@@ -3,15 +3,12 @@
 # Offline / No API required
 
 from __future__ import annotations
-
 import random
 from datetime import datetime, timezone, timedelta
-
 import streamlit as st
 
-
 # ------------------------------------------------------------
-# 1) Page config
+# Page config
 # ------------------------------------------------------------
 st.set_page_config(
     page_title="Cosmic Mirror — Reflection Without Prediction",
@@ -21,13 +18,10 @@ st.set_page_config(
 
 KST = timezone(timedelta(hours=9))
 
-
 # ------------------------------------------------------------
-# 2) 100 unique reflections (EN/KR)
-#    - Designed to be universal (no prediction, no authority)
-#    - If you want to add more later: append new dicts to this list.
+# Reflection library (100+ allowed, no hard limit)
 # ------------------------------------------------------------
-REFLECTIONS: list[dict[str, str]] = [
+REFLECTIONS = [
     {"en": "You do not need permission to become more truthful.", "ko": "더 진실해지기 위해 허락을 받을 필요는 없습니다."},
     {"en": "You are allowed to arrive unfinished.", "ko": "미완성인 채로 도착해도 괜찮습니다."},
     {"en": "Uncertainty is not a defect. It is the real weather of life.", "ko": "불확실성은 결함이 아닙니다. 삶의 실제 날씨입니다."},
@@ -139,315 +133,125 @@ REFLECTIONS: list[dict[str, str]] = [
     {"en": "Let your life be a proof of the values you speak.", "ko": "당신이 말하는 가치가, 당신의 삶에서 증명되게 하세요."},
 ]
 
-
-assert len(REFLECTIONS) == 100, "REFLECTIONS must contain exactly 100 unique items."
-
-
 # ------------------------------------------------------------
-# 3) Text dictionary (EN/KR)
+# UI text (EN / KR)
 # ------------------------------------------------------------
 UI = {
     "en": {
         "lang_label": "Language / 언어",
         "title": "Cosmic Mirror — Reflection Without Prediction",
-        "subtitle_lines": [
+        "subtitle": [
             "This is not divination.",
             "No future is predicted.",
             "No authority is invoked.",
             "This mirror exists only for reflection and responsibility.",
         ],
         "reflection_title": "Reflection",
-        "btn_another": "Show another reflection",
+        "btn_next": "Show another reflection",
         "btn_save": "Save reflection (TXT)",
         "footer": "This mirror offers no answers—only a place to stand.",
-        "meta_expander": "Optional: symbolic coordinates (not required)",
-        "meta_place": "Place of birth (symbolic)",
-        "meta_place_ph": "e.g., Suwon, Korea / Tromsø / your own words",
-        "meta_question": "What question is alive in you now? (optional)",
-        "meta_question_ph": "Not “What will happen?”, but “How should I stand where I am?”",
-        "saved_filename": "cosmic_mirror_reflection.txt",
-        "saved_note": "Saved content includes timestamp and optional inputs.",
     },
     "ko": {
         "lang_label": "Language / 언어",
         "title": "Cosmic Mirror — 예언 없는 성찰",
-        "subtitle_lines": [
+        "subtitle": [
             "이것은 점술이 아닙니다.",
             "미래를 예측하지 않습니다.",
             "어떤 권위도 호출하지 않습니다.",
-            "이 거울은 성찰과 책임을 위해서만 존재합니다.",
+            "이 거울은 성찰과 책임을 위해 존재합니다.",
         ],
         "reflection_title": "성찰",
-        "btn_another": "다른 성찰 보기",
+        "btn_next": "다른 성찰 보기",
         "btn_save": "성찰 저장 (TXT)",
-        "footer": "이 거울은 답을 주지 않습니다—다만 설 자리를 제공합니다.",
-        "meta_expander": "선택 입력: 상징 좌표 (필수 아님)",
-        "meta_place": "출생지 (상징)",
-        "meta_place_ph": "예: 수원 / 트롬쇠 / 당신만의 표현",
-        "meta_question": "지금 살아 있는 질문 (선택)",
-        "meta_question_ph": "“무슨 일이 일어날까?”가 아니라 “나는 어디에 어떻게 설 것인가?”",
-        "saved_filename": "cosmic_mirror_reflection.txt",
-        "saved_note": "저장 내용에는 시간과 선택 입력(있다면)이 포함됩니다.",
+        "footer": "이 거울은 답을 주지 않습니다 — 다만 설 자리를 제공합니다.",
     },
 }
 
-
 # ------------------------------------------------------------
-# 4) Styling (CSS)
+# Helpers
 # ------------------------------------------------------------
-st.markdown(
-    """
-<style>
-:root {
-  --cm-bg: #0b0f16;
-  --cm-card: rgba(255,255,255,0.06);
-  --cm-card-2: rgba(255,255,255,0.08);
-  --cm-border: rgba(255,255,255,0.10);
-  --cm-text: rgba(255,255,255,0.92);
-  --cm-muted: rgba(255,255,255,0.68);
-  --cm-faint: rgba(255,255,255,0.50);
-  --cm-accent: rgba(255, 209, 102, 0.95);
-}
-
-.block-container { padding-top: 1.5rem; padding-bottom: 2.5rem; max-width: 1200px; }
-
-.cm-hero {
-  padding: 1.25rem 1.25rem 1.1rem 1.25rem;
-  border-radius: 18px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
-  border: 1px solid var(--cm-border);
-}
-.cm-title {
-  font-size: 3.0rem;
-  line-height: 1.08;
-  margin: 0 0 0.6rem 0;
-  letter-spacing: -0.02em;
-  color: var(--cm-text);
-  font-weight: 780;
-}
-.cm-sub {
-  margin: 0.15rem 0;
-  color: var(--cm-muted);
-  font-size: 1.05rem;
-}
-.cm-divider { margin: 1.2rem 0 1.0rem 0; border-bottom: 1px solid var(--cm-border); }
-
-.cm-section-title {
-  margin: 1.2rem 0 0.6rem 0;
-  font-size: 2.0rem;
-  letter-spacing: -0.01em;
-  color: var(--cm-text);
-  font-weight: 760;
-}
-
-.cm-quote-card {
-  margin-top: 0.6rem;
-  padding: 1.2rem 1.25rem;
-  border-radius: 18px;
-  background: var(--cm-card);
-  border: 1px solid var(--cm-border);
-}
-
-.cm-quote {
-  font-size: 1.85rem;
-  line-height: 1.35;
-  color: var(--cm-text);
-  font-weight: 650;
-  letter-spacing: -0.01em;
-  margin: 0.2rem 0 0.4rem 0;
-}
-
-.cm-quote-mark {
-  display: inline-block;
-  margin-right: 0.55rem;
-  color: var(--cm-accent);
-  font-weight: 900;
-}
-
-.cm-meta {
-  margin-top: 0.7rem;
-  padding-top: 0.7rem;
-  border-top: 1px solid var(--cm-border);
-  color: var(--cm-faint);
-  font-size: 0.98rem;
-}
-
-.cm-footer {
-  margin-top: 1.15rem;
-  color: var(--cm-faint);
-  font-size: 1.0rem;
-}
-
-div.stButton > button, div.stDownloadButton > button {
-  border-radius: 14px !important;
-  padding: 0.70rem 1.05rem !important;
-  border: 1px solid var(--cm-border) !important;
-  background: rgba(255,255,255,0.04) !important;
-  color: var(--cm-text) !important;
-  font-weight: 650 !important;
-}
-
-div.stButton > button:hover, div.stDownloadButton > button:hover {
-  border-color: rgba(255,255,255,0.22) !important;
-  background: rgba(255,255,255,0.06) !important;
-}
-
-small { color: var(--cm-faint) !important; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-
-# ------------------------------------------------------------
-# 5) Helpers
-# ------------------------------------------------------------
-def get_lang() -> str:
-    if "cm_lang" not in st.session_state:
-        st.session_state.cm_lang = "en"
-    return st.session_state.cm_lang
-
-
-def init_deck_if_needed() -> None:
-    """Create a shuffled deck of indices to avoid repeats until cycle completes."""
-    if "cm_deck" not in st.session_state or not st.session_state.cm_deck:
+def init_deck():
+    if "deck" not in st.session_state or not st.session_state.deck:
         deck = list(range(len(REFLECTIONS)))
         random.shuffle(deck)
-        st.session_state.cm_deck = deck
+        st.session_state.deck = deck
 
+def next_reflection():
+    init_deck()
+    return st.session_state.deck.pop()
 
-def next_reflection_index() -> int:
-    init_deck_if_needed()
-    return st.session_state.cm_deck.pop()
+def ensure_current():
+    if "current_idx" not in st.session_state:
+        st.session_state.current_idx = next_reflection()
 
-
-def ensure_current_reflection() -> None:
-    if "cm_current_idx" not in st.session_state:
-        st.session_state.cm_current_idx = next_reflection_index()
-
-
-def build_saved_text(lang: str, reflection_text: str, place: str, question: str) -> str:
+def save_text(lang, text):
     now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST")
-    title = UI[lang]["title"]
-    lines = [
-        title,
-        "-" * len(title),
-        f"Timestamp: {now}",
-        "",
-        "Reflection:",
-        reflection_text,
-    ]
-    if place.strip():
-        lines += ["", f"Place (symbolic): {place.strip()}"]
-    if question.strip():
-        lines += ["", f"Question (optional): {question.strip()}"]
-    lines += ["", UI[lang]["footer"]]
-    return "\n".join(lines)
+    return f"""{UI[lang]['title']}
+-----------------------------
+{now}
 
+{text}
+
+{UI[lang]['footer']}
+"""
 
 # ------------------------------------------------------------
-# 6) Language toggle
+# Language toggle
 # ------------------------------------------------------------
-lang = get_lang()
-st.radio(
-    UI[lang]["lang_label"],
-    options=["English", "한국어"],
-    index=0 if lang == "en" else 1,
+if "lang" not in st.session_state:
+    st.session_state.lang = "en"
+
+choice = st.radio(
+    UI[st.session_state.lang]["lang_label"],
+    ["English", "한국어"],
+    index=0 if st.session_state.lang == "en" else 1,
     horizontal=True,
-    key="cm_lang_radio",
 )
-st.session_state.cm_lang = "en" if st.session_state.cm_lang_radio == "English" else "ko"
-lang = st.session_state.cm_lang
 
+st.session_state.lang = "en" if choice == "English" else "ko"
+lang = st.session_state.lang
 
 # ------------------------------------------------------------
-# 7) Hero / Intro
+# Header
 # ------------------------------------------------------------
+st.markdown(f"# 🪞 {UI[lang]['title']}")
+for line in UI[lang]["subtitle"]:
+    st.markdown(f"- {line}")
+
+st.divider()
+
+# ------------------------------------------------------------
+# Reflection display
+# ------------------------------------------------------------
+ensure_current()
+idx = st.session_state.current_idx
+reflection = REFLECTIONS[idx][lang]
+
+st.markdown(f"## {UI[lang]['reflection_title']}")
 st.markdown(
     f"""
-<div class="cm-hero">
-  <div class="cm-title">🪞 {UI[lang]['title']}</div>
-  {''.join([f'<div class="cm-sub">• {line}</div>' for line in UI[lang]['subtitle_lines']])}
-</div>
-<div class="cm-divider"></div>
-""",
-    unsafe_allow_html=True,
-)
-
+> ### {reflection}
+""")
 
 # ------------------------------------------------------------
-# 8) Optional inputs (kept simple, not required)
+# Buttons
 # ------------------------------------------------------------
-with st.expander(UI[lang]["meta_expander"], expanded=False):
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        place = st.text_input(
-            UI[lang]["meta_place"],
-            value="",
-            placeholder=UI[lang]["meta_place_ph"],
-            key="cm_place",
-        )
-    with c2:
-        question = st.text_area(
-            UI[lang]["meta_question"],
-            value="",
-            placeholder=UI[lang]["meta_question_ph"],
-            height=90,
-            key="cm_question",
-        )
+col1, col2 = st.columns(2)
 
-
-# ------------------------------------------------------------
-# 9) Reflection display (random, 100 unique per cycle)
-# ------------------------------------------------------------
-ensure_current_reflection()
-idx = st.session_state.cm_current_idx
-reflection_text = REFLECTIONS[idx][lang]
-
-st.markdown(f'<div class="cm-section-title">{UI[lang]["reflection_title"]}</div>', unsafe_allow_html=True)
-
-meta_place = st.session_state.get("cm_place", "").strip()
-meta_question = st.session_state.get("cm_question", "").strip()
-
-meta_lines = []
-if meta_place:
-    meta_lines.append(("Place (symbolic)" if lang == "en" else "출생지(상징)", meta_place))
-if meta_question:
-    meta_lines.append(("Question" if lang == "en" else "질문", meta_question))
-
-meta_html = ""
-if meta_lines:
-    meta_html_items = "".join([f"<div><b>{k}:</b> {v}</div>" for k, v in meta_lines])
-    meta_html = f'<div class="cm-meta">{meta_html_items}</div>'
-
-st.markdown(
-    f"""
-<div class="cm-quote-card">
-  <div class="cm-quote"><span class="cm-quote-mark">❝</span>{reflection_text}</div>
-  {meta_html}
-</div>
-""",
-    unsafe_allow_html=True,
-)
-
-st.markdown("<div style='height:0.85rem'></div>", unsafe_allow_html=True)
-
-# Buttons row
-b1, b2 = st.columns([1, 1])
-with b1:
-    if st.button(UI[lang]["btn_another"], use_container_width=True):
-        st.session_state.cm_current_idx = next_reflection_index()
+with col1:
+    if st.button(UI[lang]["btn_next"], use_container_width=True):
+        st.session_state.current_idx = next_reflection()
         st.rerun()
 
-with b2:
-    saved_text = build_saved_text(lang, reflection_text, meta_place, meta_question)
+with col2:
+    txt = save_text(lang, reflection)
     st.download_button(
         UI[lang]["btn_save"],
-        data=saved_text.encode("utf-8"),
-        file_name=UI[lang]["saved_filename"],
-        mime="text/plain; charset=utf-8",
+        data=txt.encode("utf-8"),
+        file_name="cosmic_mirror_reflection.txt",
+        mime="text/plain",
         use_container_width=True,
-        help=UI[lang]["saved_note"],
     )
 
-st.markdown(f'<div class="cm-footer">{UI[lang]["footer"]}</div>', unsafe_allow_html=True)
+st.markdown("---")
+st.markdown(f"*{UI[lang]['footer']}*")
