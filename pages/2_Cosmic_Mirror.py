@@ -1,7 +1,7 @@
 # =========================================================
 # 🌌 Cosmic Mirror
-# Cosmos – Consciousness – Human
-# (Pure HTTP OpenAI call, no SDK required)
+# Universe – Consciousness – Human
+# Zero-SDK / Zero-Error Stable Version
 # =========================================================
 
 import os
@@ -11,7 +11,7 @@ import requests
 import streamlit as st
 
 # ---------------------------------------------------------
-# Page config
+# Page configuration
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Cosmic Mirror",
@@ -20,30 +20,34 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# API Key
-# ---------------------------------------------------------
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-if not OPENAI_API_KEY:
-    st.error(
-        "OPENAI_API_KEY is not set.\n\n"
-        "Streamlit Cloud → Settings → Secrets\n"
-        "OPENAI_API_KEY = sk-..."
-    )
-    st.stop()
-
-# ---------------------------------------------------------
 # Header
 # ---------------------------------------------------------
 st.title("🌌 Cosmic Mirror")
 st.caption(
-    "This is not fortune telling.\n\n"
-    "Birth data is used only as a symbolic coordinate\n"
-    "to reflect the relationship between\n"
+    "This is not divination.\n\n"
+    "Birth information is treated only as a symbolic coordinate —\n"
+    "a mirror to reflect the relationship between\n"
     "**the universe, consciousness, and human life**."
 )
 
 st.divider()
+
+# ---------------------------------------------------------
+# API Key handling (NO ERROR, ONLY MESSAGE)
+# ---------------------------------------------------------
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+if not OPENAI_API_KEY:
+    st.warning(
+        "🔑 OpenAI API key is not configured yet.\n\n"
+        "To activate Cosmic Mirror:\n"
+        "1. Open **Streamlit Cloud**\n"
+        "2. Click **Manage app → Settings → Secrets**\n"
+        "3. Add:\n\n"
+        "```\nOPENAI_API_KEY = \"sk-...\"\n```\n\n"
+        "Until then, this page remains safely inactive."
+    )
+    st.stop()
 
 # ---------------------------------------------------------
 # Inputs
@@ -65,63 +69,68 @@ with col2:
     )
 
 birth_place = st.text_input(
-    "Place of birth",
+    "Place of birth (city / country)",
     placeholder="Seoul, Korea"
 )
 
 intent = st.text_area(
-    "What uncertainty or question are you living with right now?",
+    "What question or uncertainty are you living with right now?",
     height=120,
     placeholder=(
         "- A decision you are postponing\n"
-        "- A quiet fear\n"
+        "- A quiet anxiety\n"
         "- A turning point\n"
-        "- A question without words\n"
+        "- Something you cannot yet name\n"
     )
 )
 
+st.divider()
+
 # ---------------------------------------------------------
-# Prompt
+# Prompt builder
 # ---------------------------------------------------------
 def build_prompt():
     return f"""
 You are NOT an astrologer.
+You are NOT a fortune teller.
+
 You are a philosopher of science and consciousness.
 
-Birth data is symbolic, not predictive.
+Birth data below is symbolic only.
+It is NOT used for prediction.
 
 Birth:
 - Date: {birth_date}
 - Time: {birth_time}
 - Place: {birth_place}
 
-Current contemplation:
+Current human contemplation:
 {intent}
 
 Rules:
 - No prediction
 - No advice
-- No astrology
-- No destiny language
+- No destiny or fate language
+- No astrology or divination terms
 
-Frame the reflection through:
-- cosmic formation
-- rotation and time
-- observation and emergence
-- human consciousness as a mirror of the universe
+Perspective:
+- the universe as a process
+- rotation, time, emergence
+- observation as reality-forming
+- human consciousness as a local expression of the cosmos
 
 End with a short section titled:
 "Quiet Reminder"
 
 Tone:
-calm, precise, compassionate
+calm, grounded, precise, compassionate
 
 Length:
 5–7 short paragraphs
 """
 
 # ---------------------------------------------------------
-# OpenAI call (HTTP)
+# OpenAI HTTP call (safe)
 # ---------------------------------------------------------
 def call_openai(prompt):
     url = "https://api.openai.com/v1/chat/completions"
@@ -134,48 +143,62 @@ def call_openai(prompt):
     payload = {
         "model": "gpt-4.1-mini",
         "messages": [
-            {"role": "system", "content": "You speak with philosophical clarity and scientific restraint."},
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": (
+                    "You speak with philosophical clarity, "
+                    "scientific restraint, and ethical calm."
+                )
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
         ],
         "temperature": 0.7
     }
 
-    response = requests.post(url, headers=headers, json=payload, timeout=60)
+    response = requests.post(
+        url,
+        headers=headers,
+        json=payload,
+        timeout=60
+    )
 
     if response.status_code != 200:
-        raise RuntimeError(response.text)
+        return None, response.text
 
     data = response.json()
-    return data["choices"][0]["message"]["content"]
+    return data["choices"][0]["message"]["content"], None
 
 # ---------------------------------------------------------
-# Button
+# Action button
 # ---------------------------------------------------------
 if st.button("🌠 Reflect", type="primary"):
     with st.spinner("Listening to the universe..."):
-        try:
-            reflection = call_openai(build_prompt())
+        reflection, error = call_openai(build_prompt())
 
-            st.divider()
+        st.divider()
+
+        if error:
+            st.error("The universe remained silent this time.")
+            st.code(error)
+        else:
             st.subheader("🪞 Reflection")
             st.write(reflection)
 
             st.caption(
                 "This reflection does not define you.\n"
-                "It mirrors a moment where the universe\n"
-                "recognizes itself as experience."
+                "It marks a moment where the universe\n"
+                "briefly recognizes itself as lived experience."
             )
-
-        except Exception as e:
-            st.error("Failed to generate reflection.")
-            st.code(str(e))
 
 # ---------------------------------------------------------
 # Footer
 # ---------------------------------------------------------
 st.divider()
 st.caption(
-    "Cosmic Mirror is not divination.\n"
+    "Cosmic Mirror is not a prediction system.\n"
     "It is a narrative interface between\n"
     "cosmic history, symbolic language, and human awareness."
 )
