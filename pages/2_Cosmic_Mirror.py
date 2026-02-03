@@ -1,16 +1,16 @@
 # ============================================================
 # Cosmic Mirror
 # Symbolic Reflection Interface (NOT divination)
-# Safe for Python 3.13 + Streamlit Cloud
+# Final stable version for Streamlit Cloud (Python 3.13 safe)
 # ============================================================
 
 import streamlit as st
 import requests
 import json
-from datetime import datetime
+from datetime import date
 
 # ------------------------------------------------------------
-# Page config
+# Page configuration
 # ------------------------------------------------------------
 st.set_page_config(
     page_title="Cosmic Mirror",
@@ -19,7 +19,7 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------------
-# Title & philosophy (NO triple-quoted strings)
+# Title & philosophical framing
 # ------------------------------------------------------------
 st.title("🪞 Cosmic Mirror")
 
@@ -54,14 +54,19 @@ if not API_KEY:
     st.stop()
 
 # ------------------------------------------------------------
-# User input (symbolic only)
+# Symbolic user input
 # ------------------------------------------------------------
 st.subheader("Symbolic Birth Coordinates")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    birth_date = st.date_input("Date of birth")
+    birth_date = st.date_input(
+        "Date of birth",
+        value=date(1980, 1, 1),          # 중간 연도로 기본값 설정
+        min_value=date(1800, 1, 1),      # 과거 연도 자유 선택 가능
+        max_value=date.today()
+    )
     birth_time = st.time_input("Time of birth")
 
 with col2:
@@ -83,12 +88,12 @@ if st.button("🪐 Reflect", type="primary"):
         st.stop()
 
     # --------------------------------------------------------
-    # Prompts (single-line safe strings)
+    # Prompts (safe single-line strings)
     # --------------------------------------------------------
     system_prompt = (
         "You are Cosmic Mirror. "
         "You do not predict the future. "
-        "You do not give instructions or advice. "
+        "You do not give advice or instructions. "
         "You do not claim hidden knowledge. "
         "You reflect the relationship between cosmic time, "
         "human consciousness, and responsibility. "
@@ -111,7 +116,7 @@ if st.button("🪐 Reflect", type="primary"):
     )
 
     # --------------------------------------------------------
-    # OpenAI API call (raw HTTPS)
+    # OpenAI API call (raw HTTPS, no openai package)
     # --------------------------------------------------------
     headers = {
         "Authorization": f"Bearer {API_KEY}",
