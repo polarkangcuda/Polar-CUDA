@@ -209,7 +209,7 @@ UI = {
             "This mirror exists only for reflection and responsibility.",
         ],
         "reflection_title": "Today’s Stance",
-        "btn_next": "Show another stance",
+        "btn_next": "Reflect again",
         "btn_save": "Save stance (TXT)",
         "footer": "This mirror offers no answers—only a stance you can stand by.",
     },
