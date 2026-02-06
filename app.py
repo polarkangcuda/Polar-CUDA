@@ -5,7 +5,7 @@ import streamlit as st
 # =========================================================
 st.set_page_config(
     page_title="Polar CUDA",
-    page_icon="❄️",
+    page_icon="❄",
     layout="wide"
 )
 
@@ -24,7 +24,6 @@ import pandas as pd
 # =========================================================
 APP_VERSION = "v2.5-M"
 CUDA_ACRONYM = "Cryospheric Uncertainty–Driven Awareness"
-
 APP_TITLE = "POLAR CUDA – Arctic Ice Situational Awareness Gauge"
 APP_SUBTITLE = (
     "Human-vision–aligned sea-ice sentiment gauge "
@@ -33,7 +32,6 @@ APP_SUBTITLE = (
 
 DISCLAIMER_TEXT = """
 ### ⚠ Mandatory disclaimer (situational awareness only)
-
 **POLAR CUDA** is a **situational awareness gauge**, not an operational tool.
 
 - NOT navigation, routing, feasibility, or forecasting  
@@ -55,11 +53,12 @@ PHILOSOPHY_ONE_LINER = (
 st.sidebar.title("POLAR CUDA")
 st.sidebar.caption(APP_VERSION)
 
+# 🔧 CHANGE ①: default value 4 → 5
 step = st.sidebar.slider(
     "Sampling resolution",
     min_value=2,
     max_value=12,
-    value=4,
+    value=5,  # ← 변경됨
     help="Higher = faster / Lower = more detailed (internal use only)"
 )
 
@@ -161,7 +160,15 @@ def friction_level(v):
 # =========================================================
 st.title(APP_TITLE)
 st.caption(APP_SUBTITLE)
+
 st.info(f"**CUDA = {CUDA_ACRONYM}**")
+
+# 🔧 CHANGE ②: data source 명시
+st.caption(
+    "Data source: AMSR2 daily Arctic sea-ice image "
+    "provided by the University of Bremen "
+    "(https://data.seaice.uni-bremen.de)"
+)
 
 with st.expander("⚠ Disclaimer & Scope", expanded=True):
     st.markdown(DISCLAIMER_TEXT)
@@ -174,7 +181,6 @@ if not st.checkbox("I understand and wish to continue"):
 # Dates
 # =========================================================
 today = datetime.date.today()
-
 st.markdown("---")
 st.write(f"**Analysis date:** {today}")
 
