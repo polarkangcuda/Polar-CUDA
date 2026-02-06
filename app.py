@@ -53,12 +53,11 @@ PHILOSOPHY_ONE_LINER = (
 st.sidebar.title("POLAR CUDA")
 st.sidebar.caption(APP_VERSION)
 
-# 🔧 CHANGE ①: default value 4 → 5
 step = st.sidebar.slider(
     "Sampling resolution",
     min_value=2,
     max_value=12,
-    value=5,  # ← 변경됨
+    value=5,  # default = 5
     help="Higher = faster / Lower = more detailed (internal use only)"
 )
 
@@ -163,7 +162,6 @@ st.caption(APP_SUBTITLE)
 
 st.info(f"**CUDA = {CUDA_ACRONYM}**")
 
-# 🔧 CHANGE ②: data source 명시
 st.caption(
     "Data source: AMSR2 daily Arctic sea-ice image "
     "provided by the University of Bremen "
@@ -203,6 +201,9 @@ for region, roi in REGIONS.items():
 
 df = pd.DataFrame(rows)
 
+# 🔑 알파벳 순서 정렬 (UI 전용)
+df = df.sort_values(by="Region").reset_index(drop=True)
+
 # =========================================================
 # Group-level awareness
 # =========================================================
@@ -218,10 +219,10 @@ for i, (group, members) in enumerate(REGION_GROUPS.items()):
         st.progress(int(avg))
 
 # =========================================================
-# Individual regions
+# Individual regions (ALPHABETICAL ORDER)
 # =========================================================
 st.markdown("---")
-st.subheader("Sea-region situational gauges")
+st.subheader("Sea-region situational gauges (alphabetical)")
 
 for _, r in df.iterrows():
     st.write(f"**{r['Region']}** → {friction_level(r['Hybrid'])} | {r['Hybrid']}%")
